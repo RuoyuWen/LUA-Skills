@@ -272,6 +272,15 @@
           <button class="btn btn-sm btn-primary" id="assetAddProp">添加</button>
         </div>
       </div>
+      <div class="asset-section">
+        <h3>MiniGame 类型</h3>
+        <div class="asset-list" id="assetListMinigame"></div>
+        <div class="asset-add">
+          <input type="text" id="assetInputMinigame" placeholder="例如 TTT">
+          <button class="btn btn-sm btn-primary" id="assetAddMinigame">添加</button>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">UI.PlayMiniGame(gameType, lv) 的 gameType，仅可使用此处列出的 ID</p>
+      </div>
       <div style="display: flex; align-items: center; gap: 1rem; margin-top: 1rem;">
         <button class="btn btn-primary" id="assetSaveBtn">保存素材库</button>
         <span class="asset-save-status" id="assetSaveStatus"></span>
@@ -354,7 +363,7 @@
     const API_BASE = window.location.origin;
     const STORAGE_KEY = 'lua_gen_api_key';
 
-    let assets = { npcs: [], enemies: [], props: [] };
+    let assets = { npcs: [], enemies: [], props: [], minigames: [] };
 
     function renderAssetList(containerId, list, key) {
       const el = document.getElementById(containerId);
@@ -368,6 +377,7 @@
       renderAssetList('assetListNpc', assets.npcs, 'npcs');
       renderAssetList('assetListEnemy', assets.enemies, 'enemies');
       renderAssetList('assetListProp', assets.props, 'props');
+      renderAssetList('assetListMinigame', assets.minigames || [], 'minigames');
     }
 
     async function loadAssets() {
@@ -397,12 +407,15 @@
     function addNpc() { const v = document.getElementById('assetInputNpc').value.trim(); if (v && !assets.npcs.includes(v)) { assets.npcs.push(v); assets.npcs.sort(); renderAssets(); saveAssetsSilent(); document.getElementById('assetInputNpc').value = ''; } }
     function addEnemy() { const v = document.getElementById('assetInputEnemy').value.trim(); if (v && !assets.enemies.includes(v)) { assets.enemies.push(v); assets.enemies.sort(); renderAssets(); saveAssetsSilent(); document.getElementById('assetInputEnemy').value = ''; } }
     function addProp() { const v = document.getElementById('assetInputProp').value.trim(); if (v && !assets.props.includes(v)) { assets.props.push(v); assets.props.sort(); renderAssets(); saveAssetsSilent(); document.getElementById('assetInputProp').value = ''; } }
+    function addMinigame() { const v = document.getElementById('assetInputMinigame').value.trim(); if (v && !(assets.minigames || []).includes(v)) { assets.minigames = assets.minigames || []; assets.minigames.push(v); assets.minigames.sort(); renderAssets(); saveAssetsSilent(); document.getElementById('assetInputMinigame').value = ''; } }
     document.getElementById('assetAddNpc').onclick = addNpc;
     document.getElementById('assetAddEnemy').onclick = addEnemy;
     document.getElementById('assetAddProp').onclick = addProp;
+    document.getElementById('assetAddMinigame').onclick = addMinigame;
     document.getElementById('assetInputNpc').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addNpc(); } };
     document.getElementById('assetInputEnemy').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addEnemy(); } };
     document.getElementById('assetInputProp').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addProp(); } };
+    document.getElementById('assetInputMinigame').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addMinigame(); } };
     document.getElementById('assetSaveBtn').onclick = saveAssets;
 
     loadAssets();

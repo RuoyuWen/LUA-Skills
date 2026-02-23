@@ -3,7 +3,7 @@ import re
 from typing import List, Tuple
 
 
-def validate_encounter(code: str) -> List[str]:
+def validate_encounter(code: str, assets: dict | None = None) -> List[str]:
     """
     Check Encounter code for rule.md compliance.
     Returns list of error messages; empty list = passes.
@@ -42,6 +42,15 @@ def validate_encounter(code: str) -> List[str]:
     # Rule 7: 敌人必须用 World.SpawnEnemy，禁止放 npcData
     if re.search(r'npcData\s*=\s*\{[^}]*["\']Enemy[_A-Za-z0-9]+["\']', code_clean):
         errors.append("敌人不得放入 npcData，必须用 World.SpawnEnemy(id, loc, count) 或 World.SpawnEnemyAtPlayer(id, count) 生成")
+
+    # Rule 8: PlayMiniGame gameType 必须来自素材库 minigames
+    if "PlayMiniGame" in code_clean and assets:
+        allowed = set(assets.get("minigames", []) or [])
+        match = re.search(r'PlayMiniGame\s*\(\s*["\']([^"\']+)["\']', code_clean)
+        if match:
+            used = match.group(1)
+            if allowed and used not in allowed:
+                errors.append(f"UI.PlayMiniGame 的 gameType \"{used}\" 不在素材库 minigames 中，仅可用: {', '.join(sorted(allowed))}")
 
     # 基本结构
     if "World.SpawnEncounter" not in code_clean and "encounter" in code_clean.lower():

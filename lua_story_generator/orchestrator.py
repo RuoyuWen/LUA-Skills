@@ -95,7 +95,7 @@ def _generate_step_with_validation(
     if step.get("type") != "encounter":
         return code
 
-    errors = validate_encounter(code)
+    errors = validate_encounter(code, assets)
     retries = 0
     while errors and retries < MAX_FIX_RETRIES:
         code = run_coding_agent(
@@ -104,7 +104,7 @@ def _generate_step_with_validation(
             step_index=step_index
         )
         code = _clean_code_output(code)
-        errors = validate_encounter(code)
+        errors = validate_encounter(code, assets)
         retries += 1
 
     return code

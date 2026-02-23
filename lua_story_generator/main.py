@@ -39,6 +39,7 @@ class AssetsModel(BaseModel):
     npcs: list[str] = []
     enemies: list[str] = []
     props: list[str] = []
+    minigames: list[str] = []
 
 
 class GenerateResponse(BaseModel):
@@ -60,14 +61,17 @@ def root():
 
 
 def _load_assets() -> dict:
+    data = {"npcs": [], "enemies": [], "props": [], "minigames": []}
     if ASSETS_FILE.exists():
         try:
-            return json.loads(ASSETS_FILE.read_text(encoding="utf-8"))
+            data = json.loads(ASSETS_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    if DEFAULT_ASSETS.exists():
-        return json.loads(DEFAULT_ASSETS.read_text(encoding="utf-8"))
-    return {"npcs": [], "enemies": [], "props": []}
+    elif DEFAULT_ASSETS.exists():
+        data = json.loads(DEFAULT_ASSETS.read_text(encoding="utf-8"))
+    if "minigames" not in data or not data["minigames"]:
+        data.setdefault("minigames", ["TTT"])
+    return data
 
 
 def _save_assets(data: dict) -> None:
@@ -84,7 +88,7 @@ def get_assets():
 @app.post("/api/assets")
 def save_assets(data: AssetsModel):
     """保存素材库"""
-    _save_assets({"npcs": data.npcs, "enemies": data.enemies, "props": data.props})
+    _save_assets({"npcs": data.npcs, "enemies": data.enemies, "props": data.props, "minigames": data.minigames or []})
     return {"ok": True}
 
 
@@ -117,6 +121,8 @@ def generate(req: GenerateRequest):
     assets = req.assets or _load_assets()
     if not assets.get("npcs") and not assets.get("enemies") and not assets.get("props"):
         assets = _load_assets()
+    if "minigames" not in assets or not assets["minigames"]:
+        assets.setdefault("minigames", ["TTT"])
 
     try:
         result = run_full_pipeline(

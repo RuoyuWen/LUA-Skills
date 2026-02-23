@@ -18,6 +18,7 @@ description: Generates LUA Encounter scripts for CineText/Narrative. Use when ge
 - [ ] 仅使用 lua_atomic_modules_call_guide.md 中存在的 API
 - [ ] NPC ID 命名：`encXX_RoleName`（如 enc07_smith）
 - [ ] 台词/动作间适当插入 World.Wait(0.8~1.5) 控制节奏
+- [ ] 说话与演绎中适当加入 npc:PlayAnimLoop / npc:PlayAnim（见动画动作库）
 
 ## 奇遇位置与敌人生成
 
@@ -61,10 +62,54 @@ SpawnEncounter_XXX()
 |------|-----|------|
 | 剧情 | UI.Toast, npc:ApproachAndSay, UI.ShowDialogue | npc:ApproachAndSay(player, "你好") |
 | 选择 | UI.Ask（2选项）, UI.AskMany（3+选项） | 见下方规范 |
-| 动画 | npc:PlayAnim, npc:PlayAnimLoop, World.Wait | World.Wait(1.0) |
+| 动画 | npc:PlayAnim, npc:PlayAnimLoop, World.Wait | 见下方动画动作库 |
 | 战斗 | npc:SetAsHostile（NPC 变敌）, World.SpawnEnemy（生成敌人） | World.SpawnEnemy("Enemy_Wolf", loc, 1) |
 | 奖励 | npc:GiveItem, GiveWeapon, GiveEquip | npc:GiveWeapon("FireSword", 1) |
+| 迷你游戏 | UI.PlayMiniGame(gameType, lv) | UI.PlayMiniGame("TTT", 2) |
 | 销毁/隐藏 | World.DestroyByID, World.Destroy, obj:Destroy, obj:SetVisible | World.DestroyByID("enc07_drunk") |
+
+## 迷你游戏（rule 7.6）
+
+当剧情涉及**与 NPC 对弈、比赛、赌局、挑战**等，获胜/失败有不同结果时，必须调用 `UI.PlayMiniGame(gameType, lv)`。**奖励/惩罚必须在同一 encounter 内当场完成**，禁止拆成两个 encounter（一个下棋、一个领奖）。
+
+示例场景：玩家和老人玩棋，赢了得宝剑、输了被骂 —— **一个 NPC 一个地点，全部逻辑写在一个 encounter 的 code 里**。
+
+```lua
+npc:ApproachAndSay(player, "来一局？赢了这把剑归你，输了可别怨我。")
+World.Wait(1.0)
+local result = UI.PlayMiniGame("TTT", 2)  -- gameType 必须来自素材库 minigames 列表（如 TTT），lv 为难度
+World.Wait(1.0)
+if result == "Success" then
+    npc:GiveWeapon("TestSword", 1)
+    npc:ApproachAndSay(player, "好本事，剑归你了。")
+    UI.Toast("你获得了 TestSword。")
+else
+    UI.ShowDialogue("老人", "就这水平？回去再多练练吧！")
+end
+```
+
+**gameType 必须来自素材库的 MiniGame 列表**，禁止使用未在素材库中的 ID（如 "chess"）。返回值 `"Success"` 表示胜利。
+
+## 动画动作库（说话与演绎中须适当加入）
+
+**PlayAnimLoop(animName, time)** — 循环播放，time=0 表示持续至下一动作：
+- Happy, Frustrated, Wave, Stagger, Scared, Sleep, Sing, Dance, Idle, Shy
+
+**PlayAnim(animName)** — 单次播放：
+- Drink（仅此一个）
+
+用法示例：
+```lua
+npc:PlayAnimLoop("Happy", 0)
+npc:ApproachAndSay(player, "欢迎光临！")
+World.Wait(1.0)
+npc:PlayAnim("Drink")  -- 喝酒动作
+World.Wait(1.0)
+npc:PlayAnimLoop("Frustrated", 0)
+UI.ShowDialogue("醉汉", "唉，又输了一局。")
+```
+
+**选动作原则**：根据情绪选用（开心→Happy，生气/不满→Frustrated，打招呼→Wave，害怕→Scared，醉醺醺/喝酒→Drink，害羞→Shy，跳舞→Dance 等），在台词前后穿插 `npc:PlayAnimLoop` 或 `npc:PlayAnim`。
 
 ## 事件节奏（rule 9.3）
 

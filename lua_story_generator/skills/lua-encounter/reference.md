@@ -18,6 +18,7 @@
 - UI.ShowDialogue(name, text) -> nil|any
 - UI.Ask(msg, btnA, btnB) -> bool|string — 返回选中按钮文案，比较用 if r == "btnA文案"
 - UI.AskMany(title, options) -> any — options 为数组，返回选中项字符串
+- UI.PlayMiniGame(gameType, lv) -> string|any — 播放迷你游戏，返回 "Success" 等，用于对弈/赌局/挑战
 
 ## Entity 接口（obj:Method）
 - obj:IsValid() -> bool
@@ -28,8 +29,8 @@
 ## Performer 接口（npc:Method，NPC 须实现）
 - npc:ApproachAndSay(target, text) -> nil（异步）
 - npc:LookAt(target) -> nil
-- npc:PlayAnim(animName) -> nil（异步）
-- npc:PlayAnimLoop(animName, time) -> nil
+- npc:PlayAnim(animName) -> nil（异步）— 仅 Drink
+- npc:PlayAnimLoop(animName, time) -> nil — Happy, Frustrated, Wave, Stagger, Scared, Sleep, Sing, Dance, Idle, Shy
 - npc:SetAsHostile() -> string（异步）
 - npc:SetAsAlly() -> nil
 - npc:GiveItem(id, count) -> nil — id 来自 DT_Items

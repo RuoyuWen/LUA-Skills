@@ -52,10 +52,14 @@ def run_story_expert(
     """Agent 1: Story Expert - expand natural language into full 奇遇."""
     system_prompt = """你是一位专业的游戏剧情设计师。将玩家输入的简短故事梗概扩写为完整的、可用于LUA脚本实现的「奇遇」剧本。
 
+**重要**：
+1. 若故事涉及对弈、比赛、赌局、棋类、猜拳等，获胜/失败有不同结果，必须标注「需调用 UI.PlayMiniGame」，并写明赢/输分支。
+2. **单一事件**（对弈、赌局、当场对话分支等）应**合并为一个 encounter**，一个 NPC 一个地点讲完；仅当故事**明确需要换场景**（如接任务→去别处→再回来交任务）时才拆成多步。
+
 输出格式 TPA：
-## Thinking - 分析核心要素、角色、冲突
-## Planning - 设计起承转合、分支、奖励
-## Action - 完整剧本，包含：奇遇ID/名称、触发位置、参与NPC、剧情流程、道具ID（TestSword, FireSword, Helmet, Money 等）
+## Thinking - 分析核心要素、角色、冲突，是否含 MiniGame，是否为单一地点（不拆步）
+## Planning - 设计起承转合、分支、奖励；若为单一事件则明确「一个 encounter 完成」
+## Action - 完整剧本，包含：奇遇ID/名称、触发位置、参与NPC、剧情流程、道具ID，若含 MiniGame 则标注 gameType 建议
 """
     messages = [
         {"role": "system", "content": system_prompt},
@@ -74,9 +78,15 @@ def run_planner(
     planning_skill = """
 ## 输出 JSON 步骤列表（仅 type=encounter，不要 setup）
 
+**核心原则：一个故事一个 NPC 一个地点**
+- 对弈、赌局、MiniGame、对话分支等**当场完成**的剧情 → **只生成 1 个 encounter**，一个 NPC 在一个地点讲完，禁止拆成「下棋 encounter」+「领奖 encounter」
+- **连续奇遇 (chain)** 仅当故事**明确需要换场景**（如接任务→去森林→回酒馆交任务）时才拆成多步
+
 **关键**：必须判断是「独立奇遇」还是「连续奇遇」：
-- **独立奇遇**：每个故事互不关联，各有结局和奖励 → 每个 step 的 chain 为 null
-- **连续奇遇**：多个步骤是同一个任务的起承转合，奖励仅在最后一环发放 → 同 chain 的 steps 设相同 chain 名、chainOrder、isFinal
+- **独立奇遇**：每个故事互不关联，**一个 NPC 一个地点**完成 → chain 为 null
+- **连续奇遇**：需换场景的多步任务 → 同 chain 设 chainOrder、isFinal
+
+**MiniGame**：对弈/赌局等，在**同一 encounter 内**完成 PlayMiniGame 并当场发放奖励/惩罚，description 含「PlayMiniGame」「对弈」等关键词。
 
 {
   "steps": [
@@ -131,11 +141,13 @@ def run_coding_agent(
         npcs = assets.get("npcs", [])
         enemies = assets.get("enemies", [])
         props = assets.get("props", [])
+        minigames = assets.get("minigames", []) or []
         asset_constraint = f"""
 === 【强制】素材库约束（禁止使用库外 ID）===
 - npcData 中的 NPC 类型仅可使用: {", ".join(npcs) if npcs else "（无）"}
 - World.SpawnEnemy / AddEnemySpawn 仅可用 Enemy: {", ".join(enemies) if enemies else "（无）"}
 - Env.AddProp / placeProp 仅可用 Prop: {", ".join(props) if props else "（无）"}
+- **UI.PlayMiniGame(gameType, lv)** 的 gameType 仅可使用: {", ".join(minigames) if minigames else "（无，禁止使用 PlayMiniGame）"}
 - 不得使用以上列表之外的任何 ID。
 """
 
@@ -158,7 +170,9 @@ def run_coding_agent(
 9. **敌人生成**：剧情中若需敌人，必须用 World.SpawnEnemy(id, loc, count) 或 World.SpawnEnemyAtPlayer(id, count)，禁止把 Enemy ID 放入 npcData 或使用 World.SpawnNPC
 10. **API 规范**：仅使用 lua_atomic_modules_call_guide.md 中列出的 API（World/UI/Entity/Performer），FVector/FRotator 格式严格遵循
 11. **事件节奏**：台词/动作之间插入 World.Wait(0.8~1.5)，避免剧情同一帧执行完
-12. **NPC 离场**：若剧情需 NPC 离开，可调用 World.DestroyByID("encXX_npc") 或 npc:SetVisible(false)
+12. **动画动作**：说话与演绎中适当加入 npc:PlayAnimLoop（Happy/Frustrated/Wave/Scared/Shy/Dance 等）或 npc:PlayAnim("Drink")，根据情绪选动作
+13. **NPC 离场**：若剧情需 NPC 离开，可调用 World.DestroyByID("encXX_npc") 或 npc:SetVisible(false)
+14. **MiniGame**：若描述含对弈、比赛、赌局、棋类，赢/输有不同结果，必须用 UI.PlayMiniGame(gameType, lv)，**gameType 仅可用素材库 minigames 中的 ID**（如 TTT），**在同一 encounter 内**根据 result == "Success" 当场分支处理奖励/惩罚，禁止拆成两个 encounter
 """
 
     # 连续奇遇上下文
