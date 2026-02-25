@@ -33,6 +33,7 @@
 - npc:PlayAnimLoop(animName, time) -> nil — Happy, Frustrated, Wave, Stagger, Scared, Sleep, Sing, Dance, Idle, Shy
 - npc:SetAsHostile() -> string（异步）
 - npc:SetAsAlly() -> nil
+- npc:SetAsCompanion() -> nil — 邀请该 NPC 成为同伴，调用后建议 UI.Toast("XXX成为同伴")
 - npc:GiveItem(id, count) -> nil — id 来自 DT_Items
 - npc:GiveWeapon(id, count) -> nil
 - npc:GiveEquip(id, count) -> nil

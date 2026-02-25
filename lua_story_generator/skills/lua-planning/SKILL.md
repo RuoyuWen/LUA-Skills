@@ -71,6 +71,14 @@ description: Plans LUA encounter development steps from expanded story. Use when
 {"id": 1, "name": "SpawnEncounter_OldManChess", "type": "encounter", "description": "酒吧门口老人邀玩家下棋，PlayMiniGame 获胜得 TestSword，失败被骂。同一 NPC 同一地点完成。", "chain": null}
 ```
 
+## 同伴邀请奇遇
+
+若故事涉及**邀请某位 NPC 成为同伴**：**只生成 1 个 encounter**，在该 encounter 内完成对话→UI.Ask 选择→玩家答应时调用 SetAsCompanion 并 Toast。description 含「SetAsCompanion」「成为同伴」等。
+
+```json
+{"id": 1, "name": "SpawnEncounter_AliceCompanion", "type": "encounter", "description": "森林边遇 Alice，玩家可选择邀请成为同伴，SetAsCompanion 后 Toast。", "chain": null}
+```
+
 ## step.type 取值
 
 - `setup` → 加载 lua-setup-world Skill

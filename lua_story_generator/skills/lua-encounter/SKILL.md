@@ -64,9 +64,22 @@ SpawnEncounter_XXX()
 | 选择 | UI.Ask（2选项）, UI.AskMany（3+选项） | 见下方规范 |
 | 动画 | npc:PlayAnim, npc:PlayAnimLoop, World.Wait | 见下方动画动作库 |
 | 战斗 | npc:SetAsHostile（NPC 变敌）, World.SpawnEnemy（生成敌人） | World.SpawnEnemy("Enemy_Wolf", loc, 1) |
+| 同伴邀请 | npc:SetAsCompanion, UI.Toast | alice:SetAsCompanion(); UI.Toast("Alice成为同伴") |
 | 奖励 | npc:GiveItem, GiveWeapon, GiveEquip | npc:GiveWeapon("FireSword", 1) |
 | 迷你游戏 | UI.PlayMiniGame(gameType, lv) | UI.PlayMiniGame("TTT", 2) |
 | 销毁/隐藏 | World.DestroyByID, World.Destroy, obj:Destroy, obj:SetVisible | World.DestroyByID("enc07_drunk") |
+
+## 同伴邀请
+
+当剧情涉及**邀请某位 NPC 成为同伴**时，在对话/分支确认后调用 `npc:SetAsCompanion()`，并配合 `UI.Toast` 提示：
+
+```lua
+-- 例如玩家选择「邀请 Alice 加入」后
+alice:SetAsCompanion()
+UI.Toast("Alice成为同伴")
+```
+
+NPC 变量名（如 alice）需与 npcData 中的 ID 对应（如 enc07_alice）。通常放在选择分支（UI.Ask）的「答应/接受」分支内。
 
 ## 迷你游戏（rule 7.6）
 
