@@ -53,6 +53,13 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 4. 输入故事梗概，点击「生成 LUA 脚本」
 5. 复制总拼装脚本或下载 `Full_Script.lua` 使用
 
+### 6. TCP 服务（Unreal 客户端）
+
+默认同时启动 TCP 服务 `tcp://127.0.0.1:9000`，Unreal 可作为 TCP 客户端连接并发送 JSON 请求生成 LUA。详见 `UNREAL_INTEGRATION.md`。
+
+- 仅运行 TCP：`python tcp_server.py --port 9000`
+- 禁用 TCP：`set SKIP_TCP=1` 后运行 `python main.py`
+
 ---
 
 ## 流程

@@ -138,6 +138,29 @@ def generate(req: GenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _start_tcp_server_thread(host: str = "127.0.0.1", port: int = 9000):
+    """Start TCP server in background thread for Unreal client connection."""
+    import threading
+    from tcp_server import run_tcp_server
+
+    def run():
+        try:
+            run_tcp_server(host=host, port=port)
+        except OSError as e:
+            print(f"[TCP] Failed to start: {e}")
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    print(f"[TCP] Story generator TCP server running at tcp://{host}:{port}")
+
+
 if __name__ == "__main__":
+    import os
     import uvicorn
+
+    # 默认同时启动 TCP 服务（供 Unreal 连接），可通过 SKIP_TCP=1 禁用
+    if os.environ.get("SKIP_TCP", "").strip() != "1":
+        tcp_port = int(os.environ.get("TCP_PORT", "9000"))
+        _start_tcp_server_thread(port=tcp_port)
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
