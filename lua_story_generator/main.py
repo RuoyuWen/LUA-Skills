@@ -33,6 +33,7 @@ class GenerateRequest(BaseModel):
     planning_model: str = "gpt-4.1"
     coding_model: str = "gpt-5.1-codex-max"
     assets: dict | None = None  # {npcs:[], enemies:[], props:[]}
+    stages_only: bool = False  # True 时仅返回 stages，不含 expanded_story 等
 
 
 class AssetsModel(BaseModel):
@@ -42,12 +43,18 @@ class AssetsModel(BaseModel):
     minigames: list[str] = []
 
 
+class StageItem(BaseModel):
+    Type: str  # InitMap | InitEvent | StartGame | Reopen | AddEvent | Dialogue
+    Code: str
+
+
 class GenerateResponse(BaseModel):
     expanded_story: str
     plan_output: str
     steps: list
     generated_files: dict
-    full_script: str  # 拼装好的完整 LUA 脚本
+    stages: list  # [{Type, Code}, ...]，按 InitMap -> InitEvent -> StartGame 顺序
+    full_script: str  # 所有 stages 的 Code 拼接（兼容旧用法）
 
 
 @app.get("/")
@@ -102,7 +109,7 @@ def get_models():
     }
 
 
-@app.post("/generate", response_model=GenerateResponse)
+@app.post("/generate")
 def generate(req: GenerateRequest):
     """Run full pipeline: story expansion -> planning -> code generation."""
     if not req.api_key or not req.api_key.strip():
@@ -133,6 +140,8 @@ def generate(req: GenerateRequest):
             coding_model=req.coding_model,
             assets=assets,
         )
+        if req.stages_only:
+            return result.get("stages", [])  # 仅返回 stages 数组，与 TCP 一致
         return GenerateResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -127,6 +127,7 @@ def run_coding_agent(
     assets: dict | None = None,
     all_steps: Optional[list] = None,
     step_index: int = 0,
+    npc_located_context: str = "",
 ) -> str:
     """
     Agent 3: Coding Agent - generate LUA using Skills.
@@ -216,9 +217,18 @@ def run_coding_agent(
     else:
         fix_prompt = ""
 
+    npc_ref = ""
+    if npc_located_context and npc_located_context.strip():
+        npc_ref = f"""
+=== 【前置 NPC 布置参考】(step3_npc_located.lua，地图已放置的 NPC 类型与坐标) ===
+{npc_located_context[:3000]}
+
+奇遇可复用这些 NPC 类型（Merchant_Male, Hunter_Male 等），或使用 npcData 生成新的 encounter NPC。
+"""
+
     user_msg = f"""步骤: {step_name} (type={step_type})
 描述: {step_desc}
-{chain_context}{loc_hint}{fix_prompt}
+{chain_context}{loc_hint}{npc_ref}{fix_prompt}
 
 扩写故事（剧情参考）:
 {expanded_story[:2500]}

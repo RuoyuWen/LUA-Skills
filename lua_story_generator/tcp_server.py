@@ -76,16 +76,10 @@ def _handle_request(raw: str) -> dict:
                 coding_model=coding_model,
                 assets=assets,
             )
-            return {
-                "ok": True,
-                "full_script": result.get("full_script", ""),
-                "expanded_story": result.get("expanded_story", ""),
-                "plan_output": result.get("plan_output", ""),
-                "steps": result.get("steps", []),
-                "generated_files": result.get("generated_files", {}),
-            }
+            # TCP generate 成功时只返回 stages 数组，不包含 ok/stages 外层包装
+            return result.get("stages", [])
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return {"error": str(e)}
 
     elif cmd == "ping" or cmd == "health":
         return {"ok": True, "msg": "pong"}
