@@ -439,7 +439,7 @@
         </div>
       </div>
       <div id="tab-npcmap" class="tab-content" style="display: none;">
-        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.75rem;">无需调用 AI，可直接粘贴 LUA 或从 InitMap 加载。拖拽移动、Alt+点击添加、选中后删除，修改可应用回 InitMap。</p>
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.75rem;">工作流：加载预设地图 → 指定奇遇触发点（★）→ 微调 NPC/Prop → 生成奇遇。奇遇将发生在你指定的位置。拖拽移动、Alt+点击添加 NPC、Shift+点击添加奇遇点。</p>
         <details style="margin-bottom: 0.75rem;">
           <summary style="cursor: pointer; color: var(--accent); font-size: 0.9rem;">直接粘贴 LUA 代码（未调用 AI 时使用）</summary>
           <textarea id="npcMapPasteArea" class="output-block" placeholder="粘贴包含 World.SpawnNPC 或 Env.AddProp 的 LUA 代码，例如：&#10;World.SpawnNPC(&quot;Merchant_Male&quot;,&quot;stranger&quot;,{X=17800,Y=21800,Z=90})&#10;Env.AddProp(map,&quot;Prop_Fountain&quot;,{X=9900,Y=4300,Z=0},{Pitch=0,Yaw=0,Roll=0})" style="min-height: 80px; max-height: 120px; margin-top: 0.5rem; font-size: 0.85rem;"></textarea>
@@ -447,9 +447,11 @@
         </details>
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
           <div style="flex: 1; min-width: 320px;">
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-primary" id="npcMapLoadPreset" style="background: var(--accent);">加载预设地图</button>
               <button class="btn btn-sm btn-primary" id="npcMapLoad">从 InitMap 加载</button>
               <button class="btn btn-sm btn-primary" id="npcMapAdd">添加 NPC</button>
+              <button class="btn btn-sm btn-primary" id="npcMapAddEncounter">添加奇遇点</button>
               <button class="btn btn-sm btn-primary" id="npcMapDelete">删除选中</button>
               <button class="btn btn-sm btn-primary" id="npcMapApply">应用回 InitMap</button>
             </div>
@@ -696,6 +698,9 @@
             planning_model: document.getElementById('planningModel').value,
             coding_model: document.getElementById('codingModel').value,
             assets: assets,
+            encounter_locations: (NPC_MAP.encounters || []).length > 0
+              ? NPC_MAP.encounters.map(e => ({ x: Math.round(e.x), y: Math.round(e.y), z: e.z || 90 }))
+              : undefined,
           }),
         });
         const data = await res.json();
@@ -849,6 +854,7 @@
     const NPC_MAP = {
       npcs: [],
       props: [],
+      encounters: [],  // 奇遇触发点 [{x,y,z,stepIndex}]，按步骤顺序
       selected: { kind: 'npc', index: -1 },
       drag: { kind: 'npc', index: -1 },
       canvas: null,
@@ -912,6 +918,7 @@
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         this.npcs.forEach(n => { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); });
         this.props.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
+        this.encounters.forEach(e => { minX = Math.min(minX, e.x); maxX = Math.max(maxX, e.x); minY = Math.min(minY, e.y); maxY = Math.max(maxY, e.y); });
         if (minX === Infinity) return;
         const pad = 2000;
         this.worldMinX = Math.floor(minX / 1000) * 1000 - pad;
@@ -923,10 +930,13 @@
       renderList() {
         const el = document.getElementById('npcMapList');
         const countEl = document.getElementById('npcMapCount');
-        if (countEl) countEl.textContent = '(' + this.npcs.length + ' NPC, ' + this.props.length + ' Prop)';
+        if (countEl) countEl.textContent = '(' + this.npcs.length + ' NPC, ' + this.props.length + ' Prop, ' + this.encounters.length + ' 奇遇点)';
         if (!el) return;
         const sel = (k, i) => this.selected.kind === k && this.selected.index === i;
-        let html = this.npcs.map((n, i) =>
+        let html = this.encounters.map((e, i) =>
+          `<div class="npc-map-item" data-kind="encounter" data-idx="${i}" style="padding: 0.35rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; background: ${sel('encounter', i) ? 'rgba(88,166,255,0.2)' : 'transparent'}; border: 1px solid ${sel('encounter', i) ? 'var(--accent)' : 'transparent'};">★ 奇遇点 #${i+1}<br><span style="color: var(--text-muted); font-size: 0.75rem;">X=${Math.round(e.x)} Y=${Math.round(e.y)}</span></div>`
+        ).join('');
+        html += this.npcs.map((n, i) =>
           `<div class="npc-map-item" data-kind="npc" data-idx="${i}" style="padding: 0.35rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; background: ${sel('npc', i) ? 'rgba(88,166,255,0.2)' : 'transparent'}; border: 1px solid ${sel('npc', i) ? 'var(--accent)' : 'transparent'};">[NPC] ${n.type} / ${n.name}<br><span style="color: var(--text-muted); font-size: 0.75rem;">X=${Math.round(n.x)} Y=${Math.round(n.y)}</span></div>`
         ).join('');
         html += this.props.map((p, i) =>
@@ -985,9 +995,33 @@
           ctx.textAlign = 'center';
           ctx.fillText(n.type.split('_')[0] || n.name, px, py - this.pointRadius - 4);
         });
+        this.encounters.forEach((e, i) => {
+          const { px, py } = this.worldToCanvas(e.x, e.y);
+          const sel = this.selected.kind === 'encounter' && this.selected.index === i;
+          const r = this.pointRadius + 2;
+          ctx.beginPath();
+          for (let k = 0; k < 5; k++) {
+            const a = (k * 4 * Math.PI / 5) - Math.PI / 2;
+            const x = px + r * Math.cos(a), y = py + r * Math.sin(a);
+            if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+          ctx.fillStyle = sel ? '#58a6ff' : '#f0883e';
+          ctx.fill();
+          ctx.strokeStyle = sel ? '#79b8ff' : '#ffa657';
+          ctx.lineWidth = sel ? 3 : 1;
+          ctx.stroke();
+          ctx.fillStyle = '#e6edf3';
+          ctx.textAlign = 'center';
+          ctx.fillText('★' + (i + 1), px, py + 4);
+        });
       },
 
       hitTest(px, py) {
+        for (let i = this.encounters.length - 1; i >= 0; i--) {
+          const { px: cx, py: cy } = this.worldToCanvas(this.encounters[i].x, this.encounters[i].y);
+          if (Math.hypot(px - cx, py - cy) <= this.hitRadius) return { kind: 'encounter', index: i };
+        }
         for (let i = this.props.length - 1; i >= 0; i--) {
           const { px: cx, py: cy } = this.worldToCanvas(this.props[i].x, this.props[i].y);
           if (Math.hypot(px - cx, py - cy) <= this.hitRadius) return { kind: 'prop', index: i };
@@ -1051,12 +1085,49 @@
       NPC_MAP.render();
       NPC_MAP.renderList();
       const countEl = document.getElementById('npcMapCount');
-      if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
+      if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop, ' + NPC_MAP.encounters.length + ' 奇遇点)';
       const hintEl = document.getElementById('npcMapHint');
-      if (hintEl) hintEl.textContent = '拖拽移动 · Alt/Ctrl+点击空白处添加';
+      if (hintEl) hintEl.textContent = '拖拽移动 · Alt/Ctrl+点击添加 NPC · Shift+点击添加奇遇点';
     }
 
     document.getElementById('npcMapLoad')?.addEventListener('click', initNpcMap);
+    document.getElementById('npcMapLoadPreset')?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/preset-map');
+        const data = await res.json();
+        const code = data.code || '';
+        const ta = document.querySelector('.stage-code[data-type="InitMap"]');
+        if (ta) ta.value = code;
+        NPC_MAP.encounters = [];
+        initNpcMap();
+      } catch (e) { alert('加载预设地图失败: ' + e.message); }
+    });
+    document.getElementById('npcMapLoadPreset')?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/preset-map');
+        const data = await res.json();
+        const code = data.code || '';
+        const ta = document.querySelector('.stage-code[data-type="InitMap"]');
+        if (ta) ta.value = code;
+        NPC_MAP.npcs = NPC_MAP.parseLua(code);
+        NPC_MAP.props = NPC_MAP.parseProps(code);
+        NPC_MAP.encounters = [];
+        NPC_MAP.selected = { kind: 'npc', index: -1 };
+        NPC_MAP.drag = { kind: 'npc', index: -1 };
+        if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0) NPC_MAP.updateBounds();
+        else { NPC_MAP.worldMinX = 12000; NPC_MAP.worldMaxX = 25000; NPC_MAP.worldMinY = 12000; NPC_MAP.worldMaxY = 25000; }
+        NPC_MAP.render();
+        NPC_MAP.renderList();
+      } catch (e) { alert('加载预设地图失败: ' + e.message); }
+    });
+    document.getElementById('npcMapAddEncounter')?.addEventListener('click', () => {
+      const cx = (NPC_MAP.worldMinX + NPC_MAP.worldMaxX) / 2;
+      const cy = (NPC_MAP.worldMinY + NPC_MAP.worldMaxY) / 2;
+      NPC_MAP.encounters.push({ x: cx, y: cy, z: 90, stepIndex: NPC_MAP.encounters.length });
+      if (NPC_MAP.encounters.length > 1) NPC_MAP.updateBounds();
+      NPC_MAP.render();
+      NPC_MAP.renderList();
+    });
     document.getElementById('npcMapLoadPaste')?.addEventListener('click', () => {
       const pasteEl = document.getElementById('npcMapPasteArea');
       const code = pasteEl ? pasteEl.value || '' : '';
@@ -1064,12 +1135,10 @@
       NPC_MAP.props = NPC_MAP.parseProps(code);
       NPC_MAP.selected = { kind: 'npc', index: -1 };
       NPC_MAP.drag = { kind: 'npc', index: -1 };
-      if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0) NPC_MAP.updateBounds();
+      if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0 || NPC_MAP.encounters.length > 0) NPC_MAP.updateBounds();
       else { NPC_MAP.worldMinX = 12000; NPC_MAP.worldMaxX = 25000; NPC_MAP.worldMinY = 12000; NPC_MAP.worldMaxY = 25000; }
       NPC_MAP.render();
       NPC_MAP.renderList();
-      const countEl = document.getElementById('npcMapCount');
-      if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
     });
     document.getElementById('npcMapApply')?.addEventListener('click', () => {
       const ta = document.querySelector('.stage-code[data-type="InitMap"]');
@@ -1094,20 +1163,19 @@
       NPC_MAP.npcs.push({ type, name, x: cx, y: cy, z: 90 });
       NPC_MAP.updateBounds();
       NPC_MAP.render();
-      document.getElementById('npcMapCount').textContent = NPC_MAP.npcs.length + ' 个 NPC';
+      NPC_MAP.renderList();
     });
     document.getElementById('npcMapDelete')?.addEventListener('click', () => {
       const s = NPC_MAP.selected;
       if (s.index >= 0) {
         if (s.kind === 'npc') NPC_MAP.npcs.splice(s.index, 1);
-        else NPC_MAP.props.splice(s.index, 1);
+        else if (s.kind === 'prop') NPC_MAP.props.splice(s.index, 1);
+        else if (s.kind === 'encounter') NPC_MAP.encounters.splice(s.index, 1);
         NPC_MAP.selected = { kind: 'npc', index: -1 };
         NPC_MAP.updateBounds();
         NPC_MAP.render();
         NPC_MAP.renderList();
-        const countEl = document.getElementById('npcMapCount');
-        if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
-      } else alert('请先在地图上点击选中一个 NPC 或 Prop');
+      } else alert('请先在地图上点击选中一个 NPC、Prop 或奇遇点');
     });
 
     function getCanvasCoords(e) {
@@ -1126,7 +1194,11 @@
         NPC_MAP.drag = { kind: hit.kind, index: hit.index };
         NPC_MAP.selected = { kind: hit.kind, index: hit.index };
       } else {
-        if (e.altKey || e.ctrlKey) {
+        if (e.shiftKey) {
+          const { x, y } = NPC_MAP.canvasToWorld(px, py);
+          NPC_MAP.encounters.push({ x, y, z: 90, stepIndex: NPC_MAP.encounters.length });
+          NPC_MAP.updateBounds();
+        } else if (e.altKey || e.ctrlKey) {
           const { x, y } = NPC_MAP.canvasToWorld(px, py);
           const type = (assets.npcs && assets.npcs[0]) || 'Default';
           NPC_MAP.npcs.push({ type, name: 'npc_' + (NPC_MAP.npcs.length + 1), x: x, y: y, z: 90 });
@@ -1147,7 +1219,8 @@
       const { px, py } = getCanvasCoords(e);
       const { x, y } = NPC_MAP.canvasToWorld(px, py);
       if (d.kind === 'npc') { NPC_MAP.npcs[d.index].x = x; NPC_MAP.npcs[d.index].y = y; }
-      else { NPC_MAP.props[d.index].x = x; NPC_MAP.props[d.index].y = y; }
+      else if (d.kind === 'prop') { NPC_MAP.props[d.index].x = x; NPC_MAP.props[d.index].y = y; }
+      else if (d.kind === 'encounter') { NPC_MAP.encounters[d.index].x = x; NPC_MAP.encounters[d.index].y = y; }
       NPC_MAP.render();
       NPC_MAP.renderList();
     });

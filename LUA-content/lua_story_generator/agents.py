@@ -129,6 +129,7 @@ def run_coding_agent(
     all_steps: Optional[list] = None,
     step_index: int = 0,
     npc_located_context: str = "",
+    encounter_locations: Optional[list[dict]] = None,
 ) -> str:
     """
     Agent 3: Coding Agent - generate LUA using Skills.
@@ -200,12 +201,23 @@ def run_coding_agent(
         if is_final and len(chain_steps) > 1:
             chain_context += f"- 本步骤为 chain 最后一环，在此发放奖励。前面 {len(chain_steps)-1} 环不得发奖。\n"
 
-    # 奇遇位置：根据步骤顺序，先发生的近、后发生的远，间距至少 1000
+    # 奇遇位置：用户指定优先，否则根据步骤顺序推算
     total_steps = len(all_steps) if all_steps else 1
     order = step_index + 1  # 1-based
     from config import GROUND_Z, ENCOUNTER_BASE_X, ENCOUNTER_BASE_Y
     loc_hint = ""
-    if order == 1:
+    user_loc = None
+    if encounter_locations and step_index < len(encounter_locations):
+        loc = encounter_locations[step_index]
+        if isinstance(loc, dict):
+            x = loc.get("x") or loc.get("X")
+            y = loc.get("y") or loc.get("Y")
+            z = loc.get("z") or loc.get("Z") or GROUND_Z
+            if x is not None and y is not None:
+                user_loc = {"X": int(x), "Y": int(y), "Z": int(z)}
+    if user_loc:
+        loc_hint = f"\n=== 【奇遇位置】用户已指定本步骤触发点，必须使用以下坐标：{{X={user_loc['X']}, Y={user_loc['Y']}, Z={user_loc['Z']}}} ==="
+    elif order == 1:
         loc_hint = f"\n=== 【奇遇位置】本步骤为第 1 步（最先发生），应离玩家落地位置(约11536,11963,90)最近，Z 必须为地面高度 {GROUND_Z}，如 {{X={ENCOUNTER_BASE_X}, Y={ENCOUNTER_BASE_Y}, Z={GROUND_Z}}} ==="
     else:
         offset = (order - 1) * 1100  # 每步 +1100

@@ -10,6 +10,7 @@ from pydantic import AliasChoices, BaseModel, Field
 import config
 from datatable_loader import load_resources
 from orchestrator import run_full_pipeline
+from stage_loader import get_init_map_code
 
 app = FastAPI(title="LUA Story to Script Generator")
 APP_DIR = Path(__file__).parent
@@ -35,6 +36,7 @@ class GenerateRequest(BaseModel):
     coding_model: str = "gpt-5.1-codex-max"
     assets: dict | None = None  # {npcs:[], enemies:[], props:[]}
     stages_only: bool = False  # True 时仅返回 stages，不含 expanded_story 等
+    encounter_locations: list[dict] | None = None  # [{x,y,z}, ...] 用户在地图上指定的奇遇触发点，按步骤顺序对应
 
 
 class AssetsModel(BaseModel):
@@ -125,6 +127,12 @@ def _save_assets(data: dict) -> None:
     existing["minigames"] = data.get("minigames", ["TTT"])
     with open(ASSETS_FILE, "w", encoding="utf-8") as f:
         json.dump(existing, f, ensure_ascii=False, indent=2)
+
+
+@app.get("/api/preset-map")
+def get_preset_map():
+    """返回预设地图 LUA（step1+step2+step3），供前端预填 InitMap。"""
+    return {"code": get_init_map_code()}
 
 
 @app.get("/api/assets")
@@ -232,6 +240,7 @@ def generate(req: GenerateRequest):
             planning_model=req.planning_model,
             coding_model=req.coding_model,
             assets=assets,
+            encounter_locations=req.encounter_locations,
         )
         if req.stages_only:
             return result.get("stages", [])  # 仅返回 stages 数组，与 TCP 一致

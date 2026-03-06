@@ -23,6 +23,7 @@ def run_full_pipeline(
     planning_model: str = "gpt-4.1",
     coding_model: str = "gpt-5.1-codex-max",
     assets: dict | None = None,
+    encounter_locations: list[dict] | None = None,
 ) -> dict:
     """
     Execute: Story Expert -> Planner -> Coding Agent (encounters only).
@@ -50,6 +51,7 @@ def run_full_pipeline(
             client, step, expanded_story, previous_code, coding_model,
             assets=assets, all_steps=steps, step_index=i,
             npc_located_context=npc_located,
+            encounter_locations=encounter_locations,
         )
         code = _clean_code_output(code)
         init_event_parts.append(code)
@@ -95,6 +97,7 @@ def _generate_step_with_validation(
     all_steps: list | None = None,
     step_index: int = 0,
     npc_located_context: str = "",
+    encounter_locations: list[dict] | None = None,
 ) -> str:
     """Generate code for one step, with validation feedback loop for Encounter."""
     def _call_agent(errors=None):
@@ -102,6 +105,7 @@ def _generate_step_with_validation(
             client, step, expanded_story, previous_code, coding_model,
             validation_errors=errors, assets=assets, all_steps=all_steps or [],
             step_index=step_index, npc_located_context=npc_located_context,
+            encounter_locations=encounter_locations,
         )
 
     code = _call_agent(errors=None)
