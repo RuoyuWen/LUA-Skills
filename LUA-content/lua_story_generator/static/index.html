@@ -378,6 +378,7 @@
         <button class="tab" data-tab="plan">规划步骤</button>
         <button class="tab active" data-tab="stages">按阶段</button>
         <button class="tab" data-tab="files">LUA 文件</button>
+        <button class="tab" data-tab="npcmap">NPC 地图</button>
         <button class="tab" data-tab="full">总拼装脚本</button>
       </div>
 
@@ -419,6 +420,14 @@
             </div>
             <textarea class="output-block large output-textarea stage-code" data-type="StartGame" placeholder="在此输入或粘贴 StartGame 的 LUA 代码，或等待生成后自动填充..." style="max-height: 280px;"></textarea>
           </div>
+          <div class="card" style="margin-bottom: 1rem;">
+            <h3 style="font-size: 0.95rem; margin: 0 0 0.5rem 0;">Restart（重启）</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">发送 type=restart、code 为空的 JSON 到 Unreal 客户端。</p>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="btn btn-sm btn-primary stage-send" data-type="restart">发送到 Unreal</button>
+            </div>
+            <textarea class="output-block large output-textarea stage-code" data-type="restart" style="display:none;"></textarea>
+          </div>
         </div>
         <div id="stagesListExtra"></div>
       </div>
@@ -427,6 +436,32 @@
         <div id="fileContentWrap" style="margin-top: 1rem; display: none;">
           <label style="font-size: 0.85rem;">当前文件内容（可编辑）</label>
           <textarea class="output-block large output-textarea" id="fileContent" style="max-height: 400px;" placeholder="选择文件后在此显示，可编辑..."></textarea>
+        </div>
+      </div>
+      <div id="tab-npcmap" class="tab-content" style="display: none;">
+        <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.75rem;">无需调用 AI，可直接粘贴 LUA 或从 InitMap 加载。拖拽移动、Alt+点击添加、选中后删除，修改可应用回 InitMap。</p>
+        <details style="margin-bottom: 0.75rem;">
+          <summary style="cursor: pointer; color: var(--accent); font-size: 0.9rem;">直接粘贴 LUA 代码（未调用 AI 时使用）</summary>
+          <textarea id="npcMapPasteArea" class="output-block" placeholder="粘贴包含 World.SpawnNPC 或 Env.AddProp 的 LUA 代码，例如：&#10;World.SpawnNPC(&quot;Merchant_Male&quot;,&quot;stranger&quot;,{X=17800,Y=21800,Z=90})&#10;Env.AddProp(map,&quot;Prop_Fountain&quot;,{X=9900,Y=4300,Z=0},{Pitch=0,Yaw=0,Roll=0})" style="min-height: 80px; max-height: 120px; margin-top: 0.5rem; font-size: 0.85rem;"></textarea>
+          <button class="btn btn-sm btn-primary" id="npcMapLoadPaste" style="margin-top: 0.5rem;">从上方代码加载</button>
+        </details>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
+          <div style="flex: 1; min-width: 320px;">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <button class="btn btn-sm btn-primary" id="npcMapLoad">从 InitMap 加载</button>
+              <button class="btn btn-sm btn-primary" id="npcMapAdd">添加 NPC</button>
+              <button class="btn btn-sm btn-primary" id="npcMapDelete">删除选中</button>
+              <button class="btn btn-sm btn-primary" id="npcMapApply">应用回 InitMap</button>
+            </div>
+            <div style="position: relative; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <canvas id="npcMapCanvas" width="600" height="500" style="display: block; cursor: crosshair;"></canvas>
+              <div id="npcMapHint" style="position: absolute; bottom: 8px; left: 8px; font-size: 0.75rem; color: var(--text-muted); pointer-events: none;"></div>
+            </div>
+          </div>
+          <div style="width: 220px;">
+            <h4 style="font-size: 0.9rem; margin: 0 0 0.5rem 0;">NPC 列表 <span id="npcMapCount">(0)</span></h4>
+            <div id="npcMapList" style="max-height: 400px; overflow-y: auto; font-size: 0.8rem;"></div>
+          </div>
         </div>
       </div>
       <div id="tab-full" class="tab-content" style="display: none;">
@@ -809,6 +844,321 @@
       a.download = 'Full_Script.lua';
       a.click();
     };
+
+    // ============ NPC 地图可视化编辑器 ============
+    const NPC_MAP = {
+      npcs: [],
+      props: [],
+      selected: { kind: 'npc', index: -1 },
+      drag: { kind: 'npc', index: -1 },
+      canvas: null,
+      ctx: null,
+      padding: 40,
+      worldMinX: 12000, worldMaxX: 25000, worldMinY: 12000, worldMaxY: 25000,
+      pointRadius: 8,
+      hitRadius: 12,
+
+      parseLua(luaCode) {
+        const npcs = [];
+        const re = /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*\)/g;
+        let m;
+        while ((m = re.exec(luaCode)) !== null) {
+          npcs.push({ type: m[1], name: m[2], x: parseFloat(m[3]), y: parseFloat(m[4]), z: parseFloat(m[5]) });
+        }
+        if (npcs.length === 0) {
+          const reCompact = /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*\)/g;
+          while ((m = reCompact.exec(luaCode)) !== null) {
+            npcs.push({ type: m[1], name: m[2], x: parseFloat(m[3]), y: parseFloat(m[4]), z: parseFloat(m[5]) });
+          }
+        }
+        return npcs;
+      },
+
+      parseProps(luaCode) {
+        const props = [];
+        const re = /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*,/g;
+        let m;
+        while ((m = re.exec(luaCode)) !== null) {
+          props.push({ id: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), z: parseFloat(m[4]) });
+        }
+        if (props.length === 0) {
+          const reCompact = /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*,/g;
+          while ((m = reCompact.exec(luaCode)) !== null) {
+            props.push({ id: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), z: parseFloat(m[4]) });
+          }
+        }
+        return props;
+      },
+
+      worldToCanvas(x, y) {
+        const c = this.canvas;
+        if (!c) return { px: 0, py: 0 };
+        const w = c.width - this.padding * 2, h = c.height - this.padding * 2;
+        const px = this.padding + ((x - this.worldMinX) / (this.worldMaxX - this.worldMinX)) * w;
+        const py = this.padding + (1 - (y - this.worldMinY) / (this.worldMaxY - this.worldMinY)) * h;
+        return { px, py };
+      },
+
+      canvasToWorld(px, py) {
+        const c = this.canvas;
+        if (!c) return { x: 0, y: 0 };
+        const w = c.width - this.padding * 2, h = c.height - this.padding * 2;
+        const x = this.worldMinX + ((px - this.padding) / w) * (this.worldMaxX - this.worldMinX);
+        const y = this.worldMinY + (1 - (py - this.padding) / h) * (this.worldMaxY - this.worldMinY);
+        return { x, y };
+      },
+
+      updateBounds() {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        this.npcs.forEach(n => { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); });
+        this.props.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
+        if (minX === Infinity) return;
+        const pad = 2000;
+        this.worldMinX = Math.floor(minX / 1000) * 1000 - pad;
+        this.worldMaxX = Math.ceil(maxX / 1000) * 1000 + pad;
+        this.worldMinY = Math.floor(minY / 1000) * 1000 - pad;
+        this.worldMaxY = Math.ceil(maxY / 1000) * 1000 + pad;
+      },
+
+      renderList() {
+        const el = document.getElementById('npcMapList');
+        const countEl = document.getElementById('npcMapCount');
+        if (countEl) countEl.textContent = '(' + this.npcs.length + ' NPC, ' + this.props.length + ' Prop)';
+        if (!el) return;
+        const sel = (k, i) => this.selected.kind === k && this.selected.index === i;
+        let html = this.npcs.map((n, i) =>
+          `<div class="npc-map-item" data-kind="npc" data-idx="${i}" style="padding: 0.35rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; background: ${sel('npc', i) ? 'rgba(88,166,255,0.2)' : 'transparent'}; border: 1px solid ${sel('npc', i) ? 'var(--accent)' : 'transparent'};">[NPC] ${n.type} / ${n.name}<br><span style="color: var(--text-muted); font-size: 0.75rem;">X=${Math.round(n.x)} Y=${Math.round(n.y)}</span></div>`
+        ).join('');
+        html += this.props.map((p, i) =>
+          `<div class="npc-map-item" data-kind="prop" data-idx="${i}" style="padding: 0.35rem 0.5rem; margin-bottom: 0.25rem; border-radius: 6px; cursor: pointer; background: ${sel('prop', i) ? 'rgba(88,166,255,0.2)' : 'transparent'}; border: 1px solid ${sel('prop', i) ? 'var(--accent)' : 'transparent'};">[Prop] ${p.id}<br><span style="color: var(--text-muted); font-size: 0.75rem;">X=${Math.round(p.x)} Y=${Math.round(p.y)}</span></div>`
+        ).join('');
+        el.innerHTML = html;
+        el.querySelectorAll('.npc-map-item').forEach(d => {
+          d.onclick = () => { NPC_MAP.selected = { kind: d.dataset.kind, index: parseInt(d.dataset.idx, 10) }; NPC_MAP.render(); NPC_MAP.renderList(); };
+        });
+      },
+
+      render() {
+        const c = this.canvas, ctx = this.ctx;
+        if (!c || !ctx) return;
+        const w = c.width, h = c.height;
+        ctx.fillStyle = '#0d1117';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(this.padding, this.padding, w - this.padding * 2, h - this.padding * 2);
+        ctx.fillStyle = '#161b22';
+        ctx.fillRect(this.padding, this.padding, w - this.padding * 2, h - this.padding * 2);
+        ctx.font = '11px "JetBrains Mono", monospace';
+        ctx.fillStyle = '#8b949e';
+        ctx.fillText('X: ' + this.worldMinX + ' ~ ' + this.worldMaxX + '  |  Y: ' + this.worldMinY + ' ~ ' + this.worldMaxY, this.padding, h - 8);
+
+        this.props.forEach((p, i) => {
+          const { px, py } = this.worldToCanvas(p.x, p.y);
+          const sel = this.selected.kind === 'prop' && this.selected.index === i;
+          ctx.beginPath();
+          ctx.moveTo(px, py - this.pointRadius);
+          ctx.lineTo(px + this.pointRadius, py);
+          ctx.lineTo(px, py + this.pointRadius);
+          ctx.lineTo(px - this.pointRadius, py);
+          ctx.closePath();
+          ctx.fillStyle = sel ? '#58a6ff' : '#d29922';
+          ctx.fill();
+          ctx.strokeStyle = sel ? '#79b8ff' : '#e3b341';
+          ctx.lineWidth = sel ? 3 : 1;
+          ctx.stroke();
+          ctx.fillStyle = '#e6edf3';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.id.replace('Prop_', ''), px, py - this.pointRadius - 4);
+        });
+        this.npcs.forEach((n, i) => {
+          const { px, py } = this.worldToCanvas(n.x, n.y);
+          const sel = this.selected.kind === 'npc' && this.selected.index === i;
+          ctx.beginPath();
+          ctx.arc(px, py, this.pointRadius, 0, Math.PI * 2);
+          ctx.fillStyle = sel ? '#58a6ff' : '#3fb950';
+          ctx.fill();
+          ctx.strokeStyle = sel ? '#79b8ff' : '#58a6ff';
+          ctx.lineWidth = sel ? 3 : 1;
+          ctx.stroke();
+          ctx.fillStyle = '#e6edf3';
+          ctx.textAlign = 'center';
+          ctx.fillText(n.type.split('_')[0] || n.name, px, py - this.pointRadius - 4);
+        });
+      },
+
+      hitTest(px, py) {
+        for (let i = this.props.length - 1; i >= 0; i--) {
+          const { px: cx, py: cy } = this.worldToCanvas(this.props[i].x, this.props[i].y);
+          if (Math.hypot(px - cx, py - cy) <= this.hitRadius) return { kind: 'prop', index: i };
+        }
+        for (let i = this.npcs.length - 1; i >= 0; i--) {
+          const { px: cx, py: cy } = this.worldToCanvas(this.npcs[i].x, this.npcs[i].y);
+          if (Math.hypot(px - cx, py - cy) <= this.hitRadius) return { kind: 'npc', index: i };
+        }
+        return null;
+      },
+
+      toLuaBlock() {
+        const defaultZ = 90;
+        return this.npcs.map(n => 
+          `World.SpawnNPC("${n.type}","${n.name}",{X=${Math.round(n.x)},Y=${Math.round(n.y)},Z=${n.z || defaultZ}})`
+        ).join('\n');
+      },
+
+      replaceNpcBlockInLua(luaCode) {
+        const block = this.toLuaBlock();
+        const npcBlockRe = /(-- =+ 放置路人NPC[^\n]*\n)?(World\.SpawnNPC\([^)]+\)\s*\n?)+/;
+        const newBlock = '-- ============ 放置路人NPC（间距加大，避免扎堆）============\n' + block + '\n';
+        if (npcBlockRe.test(luaCode)) {
+          return luaCode.replace(npcBlockRe, newBlock);
+        }
+        const insertAfter = /Env\.BuildAsync\s*\([^)]+\)/;
+        if (insertAfter.test(luaCode)) {
+          return luaCode.replace(insertAfter, match => match + '\n\n' + newBlock);
+        }
+        return luaCode + '\n\n' + newBlock;
+      }
+    };
+
+    function initNpcMap() {
+      const canvas = document.getElementById('npcMapCanvas');
+      const panel = document.getElementById('tab-npcmap');
+      if (!canvas || !panel) return;
+      NPC_MAP.canvas = canvas;
+      NPC_MAP.ctx = canvas.getContext('2d');
+      let code = '';
+      const ta = document.querySelector('.stage-code[data-type="InitMap"]');
+      if (ta) code = ta.value || '';
+      if (!code || (NPC_MAP.parseLua(code).length === 0 && NPC_MAP.parseProps(code).length === 0)) {
+        const pasteEl = document.getElementById('npcMapPasteArea');
+        if (pasteEl && pasteEl.value.trim()) code = pasteEl.value;
+      }
+      NPC_MAP.npcs = NPC_MAP.parseLua(code);
+      NPC_MAP.props = NPC_MAP.parseProps(code);
+      NPC_MAP.selected = { kind: 'npc', index: -1 };
+      NPC_MAP.drag = { kind: 'npc', index: -1 };
+      if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0) NPC_MAP.updateBounds();
+      else { NPC_MAP.worldMinX = 12000; NPC_MAP.worldMaxX = 25000; NPC_MAP.worldMinY = 12000; NPC_MAP.worldMaxY = 25000; }
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      } else {
+        canvas.width = 600;
+        canvas.height = 500;
+      }
+      NPC_MAP.render();
+      NPC_MAP.renderList();
+      const countEl = document.getElementById('npcMapCount');
+      if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
+      const hintEl = document.getElementById('npcMapHint');
+      if (hintEl) hintEl.textContent = '拖拽移动 · Alt/Ctrl+点击空白处添加';
+    }
+
+    document.getElementById('npcMapLoad')?.addEventListener('click', initNpcMap);
+    document.getElementById('npcMapLoadPaste')?.addEventListener('click', () => {
+      const pasteEl = document.getElementById('npcMapPasteArea');
+      const code = pasteEl ? pasteEl.value || '' : '';
+      NPC_MAP.npcs = NPC_MAP.parseLua(code);
+      NPC_MAP.props = NPC_MAP.parseProps(code);
+      NPC_MAP.selected = { kind: 'npc', index: -1 };
+      NPC_MAP.drag = { kind: 'npc', index: -1 };
+      if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0) NPC_MAP.updateBounds();
+      else { NPC_MAP.worldMinX = 12000; NPC_MAP.worldMaxX = 25000; NPC_MAP.worldMinY = 12000; NPC_MAP.worldMaxY = 25000; }
+      NPC_MAP.render();
+      NPC_MAP.renderList();
+      const countEl = document.getElementById('npcMapCount');
+      if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
+    });
+    document.getElementById('npcMapApply')?.addEventListener('click', () => {
+      const ta = document.querySelector('.stage-code[data-type="InitMap"]');
+      if (!ta) { alert('未找到 InitMap 编辑区'); return; }
+      const before = NPC_MAP.parseLua(ta.value);
+      const hasNpc = before.length > 0 || NPC_MAP.npcs.length > 0;
+      let newCode;
+      if (NPC_MAP.npcs.length === 0) {
+        newCode = ta.value.replace(/(-- =+ 放置路人NPC[^\n]*\n)?(World\.SpawnNPC\([^)]+\)\s*\n?)+/g, '');
+      } else {
+        newCode = NPC_MAP.replaceNpcBlockInLua(ta.value);
+      }
+      ta.value = newCode;
+      document.getElementById('npcMapApply').textContent = '已应用';
+      setTimeout(() => document.getElementById('npcMapApply').textContent = '应用回 InitMap', 1500);
+    });
+    document.getElementById('npcMapAdd')?.addEventListener('click', () => {
+      const type = (assets.npcs && assets.npcs[0]) || 'Default';
+      const name = 'npc_' + (NPC_MAP.npcs.length + 1);
+      const cx = (NPC_MAP.worldMinX + NPC_MAP.worldMaxX) / 2;
+      const cy = (NPC_MAP.worldMinY + NPC_MAP.worldMaxY) / 2;
+      NPC_MAP.npcs.push({ type, name, x: cx, y: cy, z: 90 });
+      NPC_MAP.updateBounds();
+      NPC_MAP.render();
+      document.getElementById('npcMapCount').textContent = NPC_MAP.npcs.length + ' 个 NPC';
+    });
+    document.getElementById('npcMapDelete')?.addEventListener('click', () => {
+      const s = NPC_MAP.selected;
+      if (s.index >= 0) {
+        if (s.kind === 'npc') NPC_MAP.npcs.splice(s.index, 1);
+        else NPC_MAP.props.splice(s.index, 1);
+        NPC_MAP.selected = { kind: 'npc', index: -1 };
+        NPC_MAP.updateBounds();
+        NPC_MAP.render();
+        NPC_MAP.renderList();
+        const countEl = document.getElementById('npcMapCount');
+        if (countEl) countEl.textContent = '(' + NPC_MAP.npcs.length + ' NPC, ' + NPC_MAP.props.length + ' Prop)';
+      } else alert('请先在地图上点击选中一个 NPC 或 Prop');
+    });
+
+    function getCanvasCoords(e) {
+      const canvas = NPC_MAP.canvas;
+      if (!canvas) return { px: 0, py: 0 };
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+      return { px: (e.clientX - rect.left) * scaleX, py: (e.clientY - rect.top) * scaleY };
+    }
+    document.getElementById('npcMapCanvas')?.addEventListener('mousedown', e => {
+      const canvas = NPC_MAP.canvas;
+      if (!canvas) return;
+      const { px, py } = getCanvasCoords(e);
+      const hit = NPC_MAP.hitTest(px, py);
+      if (hit) {
+        NPC_MAP.drag = { kind: hit.kind, index: hit.index };
+        NPC_MAP.selected = { kind: hit.kind, index: hit.index };
+      } else {
+        if (e.altKey || e.ctrlKey) {
+          const { x, y } = NPC_MAP.canvasToWorld(px, py);
+          const type = (assets.npcs && assets.npcs[0]) || 'Default';
+          NPC_MAP.npcs.push({ type, name: 'npc_' + (NPC_MAP.npcs.length + 1), x: x, y: y, z: 90 });
+          NPC_MAP.updateBounds();
+        } else {
+          NPC_MAP.selected = { kind: 'npc', index: -1 };
+        }
+        NPC_MAP.drag = { kind: 'npc', index: -1 };
+      }
+      NPC_MAP.render();
+      NPC_MAP.renderList();
+    });
+    document.addEventListener('mousemove', e => {
+      const d = NPC_MAP.drag;
+      if (d.index < 0) return;
+      const canvas = NPC_MAP.canvas;
+      if (!canvas) return;
+      const { px, py } = getCanvasCoords(e);
+      const { x, y } = NPC_MAP.canvasToWorld(px, py);
+      if (d.kind === 'npc') { NPC_MAP.npcs[d.index].x = x; NPC_MAP.npcs[d.index].y = y; }
+      else { NPC_MAP.props[d.index].x = x; NPC_MAP.props[d.index].y = y; }
+      NPC_MAP.render();
+      NPC_MAP.renderList();
+    });
+    document.addEventListener('mouseup', () => {
+      if (NPC_MAP.drag.index >= 0) NPC_MAP.renderList();
+      NPC_MAP.drag = { kind: 'npc', index: -1 };
+    });
+
+    document.querySelector('.tab[data-tab="npcmap"]')?.addEventListener('click', () => {
+      setTimeout(initNpcMap, 50);
+    });
 
   </script>
 </body>
