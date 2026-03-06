@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LUA 奇遇脚本生成器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #0d1117;
+      --bg-card: #161b22;
+      --bg-input: #21262d;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --success: #3fb950;
+      --error: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg-deep);
+      color: var(--text);
+      font-family: 'Noto Sans SC', sans-serif;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem 0;
+      background: linear-gradient(135deg, var(--accent), #a371f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 1rem 0;
+      color: var(--text);
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: var(--text-muted);
+    }
+    input[type="password"],
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+    .row .field { margin-bottom: 0; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-sm {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+    }
+    .output-section {
+      margin-top: 1rem;
+    }
+    .output-block {
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 0.75rem;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .output-block.large {
+      max-height: 400px;
+    }
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .tab {
+      padding: 0.5rem 1rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .file-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 1rem;
+      background: var(--bg-input);
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+    }
+    .file-item .actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+    .status.error { color: var(--error); }
+    .status.success { color: var(--success); }
+    .save-api-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+    .save-api-hint a { color: var(--accent); cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>LUA 奇遇脚本生成器</h1>
+      <p class="subtitle">输入自然语言故事，多 Agent AI 自动生成符合规则的 LUA 奇遇脚本</p>
+    </header>
+
+    <div class="card">
+      <h2>🔑 API 配置</h2>
+      <label>OpenAI API Key</label>
+      <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off">
+      <p class="save-api-hint">
+        <a id="toggleSave">保存到本地</a> · 仅存于浏览器，不会上传
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>📖 输入故事</h2>
+      <label>用自然语言描述你想实现的奇遇（越详细越好）</label>
+      <textarea id="storyInput" placeholder="例如：玩家在酒馆门口遇到一个醉汉，醉汉请求帮忙找失落的戒指。如果答应，要去北边森林打败蜘蛛得到戒指，回来交给他可获得一把剑。如果不答应，醉汉会失落离开。"></textarea>
+    </div>
+
+    <div class="card">
+      <h2>⚙️ 模型选择</h2>
+      <div class="row">
+        <div class="field">
+          <label>故事扩写</label>
+          <select id="storyModel">
+            <option value="gpt-4.1">GPT 4.1</option>
+            <option value="gpt-5.1">GPT 5.1</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>规划步骤</label>
+          <select id="planningModel">
+            <option value="gpt-4.1">GPT 4.1</option>
+            <option value="gpt-5.1">GPT 5.1</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>代码生成</label>
+          <select id="codingModel">
+            <option value="gpt-4.1">GPT 4.1</option>
+            <option value="gpt-5.1">GPT 5.1</option>
+            <option value="gpt-5.1-codex-max" selected>Codex (gpt-5.1-codex-max)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn btn-primary" id="generateBtn">
+        <span id="btnText">生成 LUA 脚本</span>
+      </button>
+      <p class="status" id="status"></p>
+    </div>
+
+    <div class="card" id="outputCard" style="display: none;">
+      <h2>📄 生成结果</h2>
+      <div class="tabs">
+        <button class="tab active" data-tab="story">扩写故事</button>
+        <button class="tab" data-tab="plan">规划步骤</button>
+        <button class="tab" data-tab="files">LUA 文件</button>
+      </div>
+
+      <div id="tab-story" class="tab-content">
+        <div class="output-block large" id="expandedStory"></div>
+      </div>
+      <div id="tab-plan" class="tab-content" style="display: none;">
+        <div class="output-block large" id="planOutput"></div>
+      </div>
+      <div id="tab-files" class="tab-content" style="display: none;">
+        <ul class="file-list" id="fileList"></ul>
+        <div class="output-block large" id="fileContent" style="margin-top: 1rem; display: none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const STORAGE_KEY = 'lua_gen_api_key';
+
+    // Load API key from localStorage
+    const savedKey = localStorage.getItem(STORAGE_KEY);
+    if (savedKey) {
+      document.getElementById('apiKey').value = savedKey;
+      document.getElementById('toggleSave').textContent = '清除已保存的 Key';
+    }
+
+    document.getElementById('toggleSave').onclick = () => {
+      if (localStorage.getItem(STORAGE_KEY)) {
+        localStorage.removeItem(STORAGE_KEY);
+        document.getElementById('apiKey').value = '';
+        document.getElementById('toggleSave').textContent = '保存到本地';
+      } else {
+        const key = document.getElementById('apiKey').value.trim();
+        if (key) {
+          localStorage.setItem(STORAGE_KEY, key);
+          document.getElementById('toggleSave').textContent = '清除已保存的 Key';
+        }
+      }
+    };
+
+    document.getElementById('generateBtn').onclick = async () => {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const story = document.getElementById('storyInput').value.trim();
+      if (!apiKey) {
+        document.getElementById('status').textContent = '请输入 API Key';
+        document.getElementById('status').className = 'status error';
+        return;
+      }
+      if (!story) {
+        document.getElementById('status').textContent = '请输入故事内容';
+        document.getElementById('status').className = 'status error';
+        return;
+      }
+
+      const btn = document.getElementById('generateBtn');
+      const btnText = document.getElementById('btnText');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> 生成中...';
+      status.textContent = '正在调用多 Agent 流水线，请稍候...';
+      status.className = 'status';
+
+      try {
+        const res = await fetch(API_BASE + '/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            story_input: story,
+            api_key: apiKey,
+            story_model: document.getElementById('storyModel').value,
+            planning_model: document.getElementById('planningModel').value,
+            coding_model: document.getElementById('codingModel').value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '生成失败');
+
+        document.getElementById('outputCard').style.display = 'block';
+        document.getElementById('expandedStory').textContent = data.expanded_story;
+        document.getElementById('planOutput').textContent = data.plan_output;
+
+        window._generatedFiles = data.generated_files;
+        const fileList = document.getElementById('fileList');
+        fileList.innerHTML = '';
+        for (const name of Object.keys(data.generated_files)) {
+          const li = document.createElement('li');
+          li.className = 'file-item';
+          li.innerHTML = `
+            <span>${name}</span>
+            <div class="actions">
+              <button class="btn btn-sm btn-primary copy-btn" data-name="${name}">复制</button>
+              <button class="btn btn-sm btn-primary view-btn" data-name="${name}">查看</button>
+              <a class="btn btn-sm btn-primary download-btn" data-name="${name}">下载</a>
+            </div>
+          `;
+          fileList.appendChild(li);
+        }
+
+        fileList.querySelectorAll('.copy-btn').forEach(el => {
+          el.onclick = () => {
+            const code = window._generatedFiles[el.dataset.name] || '';
+            navigator.clipboard.writeText(code);
+            el.textContent = '已复制';
+            setTimeout(() => (el.textContent = '复制'), 1500);
+          };
+        });
+        fileList.querySelectorAll('.view-btn').forEach(el => {
+          el.onclick = () => {
+            const content = document.getElementById('fileContent');
+            content.style.display = 'block';
+            content.textContent = window._generatedFiles[el.dataset.name] || '';
+            content.scrollIntoView?.({ behavior: 'smooth' });
+          };
+        });
+        fileList.querySelectorAll('.download-btn').forEach(el => {
+          el.onclick = () => {
+            const code = window._generatedFiles[el.dataset.name] || '';
+            const a = document.createElement('a');
+            a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(code);
+            a.download = el.dataset.name;
+            a.click();
+          };
+        });
+
+        status.textContent = '生成完成';
+        status.className = 'status success';
+      } catch (e) {
+        status.textContent = '错误: ' + e.message;
+        status.className = 'status error';
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span id="btnText">生成 LUA 脚本</span>';
+      }
+    };
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => (c.style.display = 'none'));
+        tab.classList.add('active');
+        const id = 'tab-' + tab.dataset.tab;
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'block';
+      };
+    });
+
+  </script>
+</body>
+</html>
