@@ -37,6 +37,7 @@ class GenerateRequest(BaseModel):
     assets: dict | None = None  # {npcs:[], enemies:[], props:[]}
     stages_only: bool = False  # True 时仅返回 stages，不含 expanded_story 等
     encounter_locations: list[dict] | None = None  # [{x,y,z}, ...] 用户在地图上指定的奇遇触发点，按步骤顺序对应
+    story_mode: str = "expand"  # expand=扩写(自然语言→剧本), continue=续写(前一章→下一章)
 
 
 class AssetsModel(BaseModel):
@@ -241,6 +242,7 @@ def generate(req: GenerateRequest):
             coding_model=req.coding_model,
             assets=assets,
             encounter_locations=req.encounter_locations,
+            story_mode=req.story_mode,
         )
         if req.stages_only:
             return result.get("stages", [])  # 仅返回 stages 数组，与 TCP 一致

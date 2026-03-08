@@ -24,6 +24,7 @@ def run_full_pipeline(
     coding_model: str = "gpt-5.1-codex-max",
     assets: dict | None = None,
     encounter_locations: list[dict] | None = None,
+    story_mode: str = "expand",
 ) -> dict:
     """
     Execute: Story Expert -> Planner -> Coding Agent (encounters only).
@@ -33,7 +34,7 @@ def run_full_pipeline(
     assets = assets or {"npcs": [], "enemies": [], "props": [], "items": []}
     npc_located = get_npc_located_code()
 
-    expanded_story = run_story_expert(client, story_input, story_model)
+    expanded_story = run_story_expert(client, story_input, story_model, story_mode=story_mode)
     plan_output = run_planner(client, expanded_story, planning_model, assets=assets)
     steps = extract_steps_from_planner_output(plan_output)
     steps = [s for s in steps if str(s.get("type", "")).lower() == "encounter"]

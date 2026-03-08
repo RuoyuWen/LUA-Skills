@@ -331,7 +331,14 @@
 
     <div class="card">
       <h2>📖 输入故事</h2>
-      <label>用自然语言描述你想实现的奇遇（越详细越好）</label>
+      <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+        <label style="margin: 0;">故事模式</label>
+        <select id="storyMode">
+          <option value="expand" selected>扩写</option>
+          <option value="continue">续写</option>
+        </select>
+        <span id="storyModeHint" style="font-size: 0.85rem; color: var(--text-muted);">输入自然语言梗概，AI 扩写为完整剧本</span>
+      </div>
       <textarea id="storyInput" placeholder="例如：玩家在酒馆门口遇到一个醉汉，醉汉请求帮忙找失落的戒指。如果答应，要去北边森林打败蜘蛛得到戒指，回来交给他可获得一把剑。如果不答应，醉汉会失落离开。"></textarea>
     </div>
 
@@ -547,6 +554,20 @@
       }
     }
     document.getElementById('assetAddMinigame').onclick = addMinigame;
+
+    function updateStoryModeUI() {
+      const mode = document.getElementById('storyMode')?.value || 'expand';
+      const hint = document.getElementById('storyModeHint');
+      const ta = document.getElementById('storyInput');
+      if (mode === 'continue') {
+        if (hint) hint.textContent = '粘贴前一章故事，AI 续写下一章';
+        if (ta) ta.placeholder = '粘贴前一章的完整故事内容，AI 将基于此续写下一章的奇遇剧情...';
+      } else {
+        if (hint) hint.textContent = '输入自然语言梗概，AI 扩写为完整剧本';
+        if (ta) ta.placeholder = '例如：玩家在酒馆门口遇到一个醉汉，醉汉请求帮忙找失落的戒指。如果答应，要去北边森林打败蜘蛛得到戒指，回来交给他可获得一把剑。如果不答应，醉汉会失落离开。';
+      }
+    }
+    document.getElementById('storyMode')?.addEventListener('change', updateStoryModeUI);
     document.getElementById('assetInputMinigame').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addMinigame(); } };
     document.getElementById('assetSaveBtn').onclick = saveAssets;
 
@@ -697,6 +718,7 @@
             story_model: document.getElementById('storyModel').value,
             planning_model: document.getElementById('planningModel').value,
             coding_model: document.getElementById('codingModel').value,
+            story_mode: document.getElementById('storyMode')?.value || 'expand',
             assets: assets,
             encounter_locations: (NPC_MAP.encounters || []).length > 0
               ? NPC_MAP.encounters.map(e => ({ x: Math.round(e.x), y: Math.round(e.y), z: e.z || 90 }))
