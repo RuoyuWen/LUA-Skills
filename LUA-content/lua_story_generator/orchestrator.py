@@ -11,9 +11,40 @@ from agents import (
     run_story_expert,
 )
 from stage_loader import get_init_map_code, get_npc_located_code, get_start_game_code
+from config import GROUND_Z
 from validate_lua import validate_encounter
 
 MAX_FIX_RETRIES = 2
+
+
+def _inject_encounter_location(code: str, user_loc: dict) -> str:
+    """强制将用户在地图上指定的奇遇点坐标注入到生成代码中，确保故事发生在指定位置。"""
+    if not user_loc:
+        return code
+    x = user_loc.get("X") or user_loc.get("x")
+    y = user_loc.get("Y") or user_loc.get("y")
+    z = user_loc.get("Z") or user_loc.get("z") or GROUND_Z
+    if x is None or y is None:
+        return code
+    x, y, z = int(x), int(y), int(z)
+    target = f"{{X={x}, Y={y}, Z={z}}}"
+
+    # 1. 替换 ResolveEncounterLoc() 的 return 语句（支持 {X=1, Y=2, Z=3} 与 {X=1,Y=2,Z=3}）
+    pattern1 = re.compile(
+        r"(local\s+function\s+ResolveEncounterLoc\s*\(\)\s*)"
+        r"return\s*\{\s*X\s*=\s*[\d.]+\s*,\s*Y\s*=\s*[\d.]+\s*,\s*Z\s*=\s*[\d.]+\s*\}",
+        re.IGNORECASE,
+    )
+    code = pattern1.sub(r"\1return " + target, code)
+
+    # 2. 替换 World.SpawnEncounter 的第一个参数（字面量坐标）
+    pattern2 = re.compile(
+        r"World\.SpawnEncounter\s*\(\s*\{\s*X\s*=\s*[\d.]+\s*,\s*Y\s*=\s*[\d.]+\s*,\s*Z\s*=\s*[\d.]+\s*\}\s*,",
+        re.IGNORECASE,
+    )
+    code = pattern2.sub(f"World.SpawnEncounter({target}, ", code)
+
+    return code
 
 
 def run_full_pipeline(
@@ -25,6 +56,7 @@ def run_full_pipeline(
     assets: dict | None = None,
     encounter_locations: list[dict] | None = None,
     story_mode: str = "expand",
+    init_map_code: str | None = None,
 ) -> dict:
     """
     Execute: Story Expert -> Planner -> Coding Agent (encounters only).
@@ -32,7 +64,12 @@ def run_full_pipeline(
     """
     client = OpenAI(api_key=api_key)
     assets = assets or {"npcs": [], "enemies": [], "props": [], "items": []}
-    npc_located = get_npc_located_code()
+    # 若用户提供了编辑后的 InitMap，从中提取 NPC 布置供编码参考
+    if init_map_code and init_map_code.strip():
+        npc_match = re.search(r"-- =+ 放置路人NPC[\s\S]*?(?=\n\n|\Z)", init_map_code)
+        npc_located = npc_match.group(0).strip() if npc_match else init_map_code[:3000]
+    else:
+        npc_located = get_npc_located_code()
 
     expanded_story = run_story_expert(client, story_input, story_model, story_mode=story_mode)
     plan_output = run_planner(client, expanded_story, planning_model, assets=assets)
@@ -55,10 +92,19 @@ def run_full_pipeline(
             encounter_locations=encounter_locations,
         )
         code = _clean_code_output(code)
+        user_loc = None
+        if encounter_locations and i < len(encounter_locations):
+            loc = encounter_locations[i]
+            if isinstance(loc, dict):
+                x = loc.get("x") or loc.get("X")
+                y = loc.get("y") or loc.get("Y")
+                if x is not None and y is not None:
+                    user_loc = {"X": int(x), "Y": int(y), "Z": int(loc.get("z") or loc.get("Z") or GROUND_Z)}
+        code = _inject_encounter_location(code, user_loc)
         init_event_parts.append(code)
         previous_code += "\n\n" + code
 
-    init_map_code = get_init_map_code()
+    init_map_final = (init_map_code and init_map_code.strip()) or get_init_map_code()
     init_event_code = "\n\n".join(init_event_parts) if init_event_parts else ""
     # 单奇遇时添加正确格式注释
     if len(steps) == 1 and init_event_code:
@@ -70,7 +116,7 @@ def run_full_pipeline(
     start_game_code = get_start_game_code()
 
     stages = [
-        {"Type": "InitMap", "Code": init_map_code},
+        {"Type": "InitMap", "Code": init_map_final},
         {"Type": "InitEvent", "Code": init_event_code},
         {"Type": "StartGame", "Code": start_game_code},
     ]

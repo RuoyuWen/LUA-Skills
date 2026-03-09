@@ -709,6 +709,11 @@
       status.className = 'status';
 
       try {
+        const initMapTa = document.querySelector('.stage-code[data-type="InitMap"]');
+        if (initMapTa && NPC_MAP.npcs?.length > 0) {
+          initMapTa.value = NPC_MAP.replaceNpcBlockInLua(initMapTa.value);
+        }
+        const initMapCode = initMapTa && initMapTa.value && initMapTa.value.trim() ? initMapTa.value.trim() : null;
         const res = await fetch(API_BASE + '/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -723,6 +728,7 @@
             encounter_locations: (NPC_MAP.encounters || []).length > 0
               ? NPC_MAP.encounters.map(e => ({ x: Math.round(e.x), y: Math.round(e.y), z: e.z || 90 }))
               : undefined,
+            init_map_code: initMapCode,
           }),
         });
         const data = await res.json();
@@ -888,32 +894,35 @@
 
       parseLua(luaCode) {
         const npcs = [];
-        const re = /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*\)/g;
-        let m;
-        while ((m = re.exec(luaCode)) !== null) {
-          npcs.push({ type: m[1], name: m[2], x: parseFloat(m[3]), y: parseFloat(m[4]), z: parseFloat(m[5]) });
-        }
-        if (npcs.length === 0) {
-          const reCompact = /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*\)/g;
-          while ((m = reCompact.exec(luaCode)) !== null) {
+        const patterns = [
+          /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*\)/g,
+          /World\.SpawnNPC\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*\)/g,
+        ];
+        for (const re of patterns) {
+          let m;
+          re.lastIndex = 0;
+          while ((m = re.exec(luaCode)) !== null) {
             npcs.push({ type: m[1], name: m[2], x: parseFloat(m[3]), y: parseFloat(m[4]), z: parseFloat(m[5]) });
           }
+          if (npcs.length > 0) break;
         }
         return npcs;
       },
 
       parseProps(luaCode) {
         const props = [];
-        const re = /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*,/g;
-        let m;
-        while ((m = re.exec(luaCode)) !== null) {
-          props.push({ id: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), z: parseFloat(m[4]) });
-        }
-        if (props.length === 0) {
-          const reCompact = /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*,/g;
-          while ((m = reCompact.exec(luaCode)) !== null) {
+        const patterns = [
+          /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*,/g,
+          /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{X=([\d.]+),Y=([\d.]+),Z=([\d.]+)\}\s*,/g,
+          /Env\.AddProp\s*\(\s*\w+\s*,\s*"([^"]+)"\s*,\s*\{\s*X\s*=\s*([\d.]+)\s*,\s*Y\s*=\s*([\d.]+)\s*,\s*Z\s*=\s*([\d.]+)\s*\}\s*\)/g,
+        ];
+        for (const re of patterns) {
+          let m;
+          re.lastIndex = 0;
+          while ((m = re.exec(luaCode)) !== null) {
             props.push({ id: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), z: parseFloat(m[4]) });
           }
+          if (props.length > 0) break;
         }
         return props;
       },
@@ -1122,24 +1131,6 @@
         if (ta) ta.value = code;
         NPC_MAP.encounters = [];
         initNpcMap();
-      } catch (e) { alert('加载预设地图失败: ' + e.message); }
-    });
-    document.getElementById('npcMapLoadPreset')?.addEventListener('click', async () => {
-      try {
-        const res = await fetch(API_BASE + '/api/preset-map');
-        const data = await res.json();
-        const code = data.code || '';
-        const ta = document.querySelector('.stage-code[data-type="InitMap"]');
-        if (ta) ta.value = code;
-        NPC_MAP.npcs = NPC_MAP.parseLua(code);
-        NPC_MAP.props = NPC_MAP.parseProps(code);
-        NPC_MAP.encounters = [];
-        NPC_MAP.selected = { kind: 'npc', index: -1 };
-        NPC_MAP.drag = { kind: 'npc', index: -1 };
-        if (NPC_MAP.npcs.length > 0 || NPC_MAP.props.length > 0) NPC_MAP.updateBounds();
-        else { NPC_MAP.worldMinX = 12000; NPC_MAP.worldMaxX = 25000; NPC_MAP.worldMinY = 12000; NPC_MAP.worldMaxY = 25000; }
-        NPC_MAP.render();
-        NPC_MAP.renderList();
       } catch (e) { alert('加载预设地图失败: ' + e.message); }
     });
     document.getElementById('npcMapAddEncounter')?.addEventListener('click', () => {

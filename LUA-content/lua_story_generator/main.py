@@ -38,6 +38,7 @@ class GenerateRequest(BaseModel):
     stages_only: bool = False  # True 时仅返回 stages，不含 expanded_story 等
     encounter_locations: list[dict] | None = None  # [{x,y,z}, ...] 用户在地图上指定的奇遇触发点，按步骤顺序对应
     story_mode: str = "expand"  # expand=扩写(自然语言→剧本), continue=续写(前一章→下一章)
+    init_map_code: str | None = None  # 用户在地图编辑器中编辑后的 InitMap 代码，若提供则优先使用（覆盖 stage_loader 模板）
 
 
 class AssetsModel(BaseModel):
@@ -243,6 +244,7 @@ def generate(req: GenerateRequest):
             assets=assets,
             encounter_locations=req.encounter_locations,
             story_mode=req.story_mode,
+            init_map_code=req.init_map_code.strip() if req.init_map_code else None,
         )
         if req.stages_only:
             return result.get("stages", [])  # 仅返回 stages 数组，与 TCP 一致
