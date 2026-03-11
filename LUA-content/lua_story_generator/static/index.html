@@ -271,6 +271,17 @@
       </div>
     </header>
 
+    <div class="card" id="ueFeedbackCard">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <h2 style="margin: 0;">📡 UE 端反馈</h2>
+        <button type="button" class="btn btn-sm btn-primary" id="ueFeedbackClear" style="font-size: 0.8rem;">清空</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">Unreal 端通过 TCP 发送 <code>{"cmd":"report","msg":"..."}</code> 时，消息会在此显示。每 2 秒自动刷新。</p>
+      <div id="ueFeedbackList" style="max-height: 200px; overflow-y: auto; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+        <div id="ueFeedbackPlaceholder" style="color: var(--text-muted);">暂无 UE 端反馈消息</div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>🔑 API 配置</h2>
       <label>OpenAI API Key</label>
@@ -612,6 +623,46 @@
     }
     refreshTcpStatus();
     setInterval(refreshTcpStatus, 2000);
+
+    async function refreshUeFeedback() {
+      try {
+        const res = await fetch(API_BASE + '/api/ue-messages?limit=50');
+        if (res.ok) {
+          const data = await res.json();
+          const list = data.messages || [];
+          const el = document.getElementById('ueFeedbackList');
+          const ph = document.getElementById('ueFeedbackPlaceholder');
+          if (!el) return;
+          el.querySelectorAll('.ue-feedback-item').forEach(n => n.remove());
+          if (list.length === 0) {
+            if (ph) ph.style.display = '';
+          } else {
+            if (ph) ph.style.display = 'none';
+            list.forEach((m) => {
+              const div = document.createElement('div');
+              div.className = 'ue-feedback-item';
+              const typeTag = m.type ? `<span style="color: var(--accent); margin-right: 0.5rem;">[${String(m.type).replace(/</g, '&lt;')}]</span>` : '';
+              const levelColor = m.level === 'error' ? 'var(--error)' : m.level === 'warn' ? '#d29922' : 'var(--text-muted)';
+              const levelTag = m.level ? `<span style="color:${levelColor};font-size:0.75rem;">${String(m.level).replace(/</g, '&lt;')}</span> ` : '';
+              const dataStr = m.data != null ? ' ' + (typeof m.data === 'object' ? JSON.stringify(m.data) : String(m.data)) : '';
+              div.innerHTML = `<span style="color: var(--text-muted);">${(m.time || '').replace(/</g, '&lt;')}</span> ${levelTag}${typeTag}${String(m.msg || '').replace(/</g, '&lt;')}${dataStr ? '<span style="color:var(--text-muted);">' + String(dataStr).replace(/</g, '&lt;') + '</span>' : ''}`;
+              div.style.cssText = 'padding: 0.25rem 0; border-bottom: 1px solid var(--border); word-break: break-all;';
+              el.appendChild(div);
+            });
+            el.scrollTop = el.scrollHeight;
+          }
+        }
+      } catch (_) {}
+    }
+    refreshUeFeedback();
+    setInterval(refreshUeFeedback, 2000);
+
+    document.getElementById('ueFeedbackClear')?.addEventListener('click', async () => {
+      try {
+        await fetch(API_BASE + '/api/ue-messages?limit=1&clear=true');
+        refreshUeFeedback();
+      } catch (_) {}
+    });
 
     // Load API key from localStorage
     const savedKey = localStorage.getItem(STORAGE_KEY);

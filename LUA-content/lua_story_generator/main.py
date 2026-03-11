@@ -182,6 +182,17 @@ def tcp_status():
         return {"connected": 0}
 
 
+@app.get("/api/ue-messages")
+def ue_messages(limit: int = 50, clear: bool = False):
+    """获取 UE 端反馈消息，供前端展示。clear=true 时返回后清空队列。"""
+    try:
+        from tcp_server import get_ue_messages
+        msgs = get_ue_messages(limit=min(limit, 200), clear=clear)
+        return {"messages": msgs, "count": len(msgs)}
+    except Exception:
+        return {"messages": [], "count": 0}
+
+
 import time
 _send_dedup: dict = {}  # {(type, code): last_send_time} 用于去重
 

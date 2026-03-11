@@ -21,6 +21,11 @@ ASSETS_FILE = Path(__file__).parent / "assets.json"
 # 已连接的 Unreal 客户端，用于前端「发送」时推送
 _connected_clients: set = set()
 _clients_lock = threading.Lock()
+
+# UE 端反馈消息队列，供前端展示
+_ue_messages: list = []
+_ue_messages_lock = threading.Lock()
+_UE_MESSAGES_MAX = 200
 DEFAULT_ASSETS = Path(__file__).parent / "assets_default.json"
 
 
@@ -28,6 +33,25 @@ def get_connected_count() -> int:
     """返回当前连接的 TCP 客户端数量。"""
     with _clients_lock:
         return len(_connected_clients)
+
+
+def push_ue_message(msg: dict) -> None:
+    """存入 UE 端发来的反馈消息，供前端拉取。"""
+    import time
+    entry = {"ts": time.time(), "time": time.strftime("%H:%M:%S", time.localtime()), **msg}
+    with _ue_messages_lock:
+        _ue_messages.append(entry)
+        while len(_ue_messages) > _UE_MESSAGES_MAX:
+            _ue_messages.pop(0)
+
+
+def get_ue_messages(limit: int = 50, clear: bool = False) -> list:
+    """获取 UE 端反馈消息列表，可选的 clear 会在返回后清空。"""
+    with _ue_messages_lock:
+        out = list(_ue_messages[-limit:]) if _ue_messages else []
+        if clear:
+            _ue_messages.clear()
+    return out
 
 
 def send_to_unreal_clients(obj: dict) -> int:
@@ -128,6 +152,16 @@ def _handle_request(raw: str) -> dict:
 
     elif cmd == "ping" or cmd == "health":
         return {"ok": True, "msg": "pong"}
+
+    elif cmd == "report" or cmd == "ue_feedback" or cmd == "feedback":
+        # UE 端主动上报信息，存入队列供前端展示
+        push_ue_message({
+            "msg": req.get("msg") or req.get("message") or req.get("content", "(无内容)"),
+            "type": req.get("type") or req.get("source", ""),
+            "data": req.get("data"),
+            "level": req.get("level", "info"),
+        })
+        return {"ok": True, "received": True}
 
     elif cmd == "get_assets":
         return {"ok": True, "assets": _load_assets()}

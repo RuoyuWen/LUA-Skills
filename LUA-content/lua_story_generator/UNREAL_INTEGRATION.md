@@ -91,6 +91,20 @@ TCP 的 `generate` 成功时**直接返回 stages 数组**，无其他字段：
 ```
 响应：`{"ok": true, "assets": {"npcs": [...], "enemies": [...], ...}}`
 
+**report（UE 端上报反馈，供前端展示）**：
+```json
+{"cmd": "report", "msg": "InitMap 执行完成", "type": "InitMap", "level": "info"}
+```
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| cmd | 是 | `"report"` 或 `"ue_feedback"` |
+| msg | 是 | 消息内容，将显示在前端「UE 端反馈」面板 |
+| type | 否 | 来源类型，如 InitMap、InitEvent、StartGame |
+| level | 否 | info / warn / error，用于颜色区分 |
+| data | 否 | 附加数据（任意 JSON） |
+
+响应：`{"ok": true, "received": true}`。前端会每 2 秒轮询并展示。
+
 ---
 
 ## Unreal C++ 示例
