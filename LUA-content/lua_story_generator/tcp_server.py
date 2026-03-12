@@ -106,9 +106,9 @@ def _handle_request(raw: str) -> dict:
         print(f"[TCP] Raw preview (repr): {preview}", file=sys.stderr)
         return {"ok": False, "error": f"Invalid JSON: {e}"}
 
-    cmd = req.get("cmd") or req.get("action")
+    cmd = req.get("cmd") or req.get("action") or req.get("Type") or req.get("type")
     if not cmd:
-        return {"ok": False, "error": "Missing 'cmd' or 'action' field"}
+        return {"ok": False, "error": "Missing 'cmd'、'action' or 'Type' field"}
 
     if cmd == "generate":
         story_input = req.get("story_input") or req.get("content", "")
@@ -153,30 +153,50 @@ def _handle_request(raw: str) -> dict:
     elif cmd == "ping" or cmd == "health":
         return {"ok": True, "msg": "pong"}
 
-    elif cmd == "npc_interaction" or cmd == "npc-interaction":
-        api_key = req.get("api_key", "").strip()
+    # 统一格式：Type + Code。支持 NPC_Think_Begin、NPC_Dialogue_Request
+    msg_type = req.get("Type") or req.get("type") or cmd
+    api_key = (req.get("api_key") or req.get("apiKey") or "").strip()
+    if not api_key:
+        api_key = None  # 下面分支内再检查
+    code = req.get("Code") or req.get("code")
+
+    if msg_type == "NPC_Dialogue_Request":
         if not api_key:
-            return {"ok": False, "error": "API Key is required for npc_interaction"}
-        prop_tag = req.get("PropTag") or req.get("prop_tag", "")
-        prop_pos = req.get("PropPos") or req.get("prop_pos")
-        personality = req.get("Personality") or req.get("personality")
-        goal = req.get("Goal") or req.get("goal")
+            return {"ok": False, "error": "API Key is required"}
+        if not isinstance(code, dict):
+            code = {"NPCInfo": {}, "CurrentDialogue": ""}
         try:
             from datatable_loader import load_resources
             res = load_resources()
             animations = res.get("animations", [])
             if not animations:
                 animations = ["Happy", "Frustrated", "Wave", "Drink", "Eat", "Idle", "Sit", "Dance", "Shy", "Dialogue"]
-            from npc_interaction import generate_npc_interaction_lua
-            lua = generate_npc_interaction_lua(
-                api_key=api_key,
-                prop_tag=str(prop_tag) if prop_tag else "",
-                prop_pos=prop_pos,
-                personality=personality,
-                goal=goal,
-                animations=animations,
-            )
-            return {"ok": True, "lua": lua}
+            from npc_dialogue import generate_npc_dialogue_reply_lua
+            lua = generate_npc_dialogue_reply_lua(api_key=api_key, code=code, animations=animations)
+            return {"Type": "NPC_Dialogue_Reply", "Code": lua, "ok": True, "lua": lua}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    elif msg_type == "NPC_Think_Begin" or cmd in ("npc_interaction", "npc-interaction", "npc_think"):
+        if not api_key:
+            return {"ok": False, "error": "API Key is required"}
+        if not isinstance(code, dict):
+            code = {
+                "NPCInfo": {
+                    "Personality": req.get("Personality") or req.get("personality") or {},
+                    "Goals": {"ShortTerm": str(req.get("Goal") or req.get("goal") or "")},
+                },
+                "TagList": [{"UID": req.get("PropTag") or req.get("prop_tag") or "", "Tags": [req.get("PropTag") or req.get("prop_tag")] or []}],
+            }
+        try:
+            from datatable_loader import load_resources
+            res = load_resources()
+            animations = res.get("animations", [])
+            if not animations:
+                animations = ["Happy", "Frustrated", "Wave", "Drink", "Eat", "Idle", "Sit", "Dance", "Shy", "Dialogue"]
+            from npc_interaction import generate_npc_think_lua
+            lua = generate_npc_think_lua(api_key=api_key, code=code, animations=animations)
+            return {"Type": "NPC_Think_End", "Code": lua, "ok": True, "lua": lua}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 

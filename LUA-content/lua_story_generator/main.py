@@ -75,8 +75,8 @@ def root():
 
 
 @app.get("/npc-interaction")
-def npc_interaction_page():
-    """NPC 实时互动页面"""
+def npc_think_page():
+    """NPC 思考页面（Type + Code 格式）"""
     from fastapi.responses import FileResponse
     path = STATIC_DIR / "npc_interaction.html"
     if path.exists():
@@ -209,20 +209,19 @@ def ue_messages(limit: int = 50, clear: bool = False):
 import time
 _send_dedup: dict = {}  # {(type, code): last_send_time} 用于去重
 
-class NpcInteractionRequest(BaseModel):
-    """UE 端传入的 NPC 互动上下文"""
-    api_key: str
-    prop_tag: str = ""
-    prop_pos: dict | None = None
-    personality: dict | None = None
-    goal: dict | None = None
+class NpcThinkRequest(BaseModel):
+    """统一格式：Type + Code。Web/UE 端通用。"""
+    Type: str = Field(default="NPC_Think_Begin", validation_alias=AliasChoices("Type", "type"))
+    Code: dict | None = Field(default=None, validation_alias=AliasChoices("Code", "code"))
+    api_key: str = ""
 
 
 @app.post("/api/npc-interaction/generate")
-def npc_interaction_generate(req: NpcInteractionRequest):
-    """根据 UE 传入的 PropTag、Personality、Goal 生成 NPC 互动 LUA"""
+def npc_interaction_generate(req: NpcThinkRequest):
+    """根据 Type 分发：NPC_Think_Begin→思考LUA，NPC_Dialogue_Request→对话回复LUA。返回 {Type, Code} 格式。"""
     if not req.api_key or not req.api_key.strip():
         raise HTTPException(status_code=400, detail="API Key is required")
+    msg_type = (req.Type or "").strip()
     try:
         res = load_resources()
         animations = res.get("animations", [])
@@ -232,16 +231,22 @@ def npc_interaction_generate(req: NpcInteractionRequest):
                 "Drink", "Eat", "Idle", "Sit", "Sleep", "Sing", "PickUp",
                 "Dialogue", "Admiring",
             ]
-        from npc_interaction import generate_npc_interaction_lua
-        lua = generate_npc_interaction_lua(
-            api_key=req.api_key.strip(),
-            prop_tag=req.prop_tag or "",
-            prop_pos=req.prop_pos,
-            personality=req.personality,
-            goal=req.goal,
-            animations=animations,
-        )
-        return {"ok": True, "lua": lua}
+        if msg_type == "NPC_Dialogue_Request":
+            from npc_dialogue import generate_npc_dialogue_reply_lua
+            lua = generate_npc_dialogue_reply_lua(
+                api_key=req.api_key.strip(),
+                code=req.Code,
+                animations=animations,
+            )
+            return {"Type": "NPC_Dialogue_Reply", "Code": lua, "ok": True, "lua": lua}
+        else:
+            from npc_interaction import generate_npc_think_lua
+            lua = generate_npc_think_lua(
+                api_key=req.api_key.strip(),
+                code=req.Code,
+                animations=animations,
+            )
+            return {"Type": "NPC_Think_End", "Code": lua, "ok": True, "lua": lua}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

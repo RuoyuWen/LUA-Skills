@@ -1,6 +1,109 @@
-"""NPC 实时互动：根据 UE 传入的 PropTag、Personality、Goal 生成 LUA 表演脚本。"""
+"""NPC 思考功能：根据 UE 传入的 Type=NPC_Think_Begin、Code={NPCInfo, TagList} 生成 LUA 表演脚本。"""
 import json
+import re
 from openai import OpenAI
+
+from prompts.npc_think import NPC_THINK_MAIN_PROMPT
+
+
+def _safe_str(v, default=""):
+    if v is None:
+        return default
+    return str(v).strip() or default
+
+
+def _parse_code(code: dict | None) -> tuple[dict, list]:
+    """从 Code 中解析 NPCInfo 和 TagList。"""
+    if not isinstance(code, dict):
+        return {}, []
+    npc_info = code.get("NPCInfo") or code.get("npc_info") or {}
+    tag_list = code.get("TagList") or code.get("tag_list") or []
+    if not isinstance(npc_info, dict):
+        npc_info = {}
+    if not isinstance(tag_list, list):
+        tag_list = []
+    return npc_info, tag_list
+
+
+def generate_npc_think_lua(
+    api_key: str,
+    code: dict | None = None,
+    animations: list[str] | None = None,
+) -> str:
+    """
+    根据 Type=NPC_Think_Begin 的 Code 生成 NPC 思考 LUA。
+    Code 包含 NPCInfo 与 TagList。
+    返回包含 _self_:Say()、_self_:PlayAnim()、_self_:PlayAnimLoop() 的 LUA 脚本。
+    """
+    npc_info, tag_list = _parse_code(code)
+
+    # 构建供模型参考的 NPCInfo 摘要
+    info_parts = []
+    info_parts.append(f"Name: {_safe_str(npc_info.get('Name'))} | Title: {_safe_str(npc_info.get('Title'))} | Gender: {_safe_str(npc_info.get('Gender'))}")
+    info_parts.append(f"BackgroundStory: {_safe_str(npc_info.get('BackgroundStory'), '未提供')}")
+    info_parts.append(f"Favorability（对玩家好感）: {npc_info.get('Favorability', '未提供')}")
+    info_parts.append(f"MoralTendency（道德倾向）: {npc_info.get('MoralTendency', '未提供')}")
+
+    pers = npc_info.get("Personality") or npc_info.get("personality")
+    if isinstance(pers, dict):
+        info_parts.append(f"Personality（大五人格）: {json.dumps(pers, ensure_ascii=False)}")
+    else:
+        info_parts.append("Personality: 未提供")
+
+    goals = npc_info.get("Goals") or npc_info.get("goals")
+    if isinstance(goals, dict):
+        info_parts.append(f"Goals - LongTerm（人生信念）: {_safe_str(goals.get('LongTerm') or goals.get('long_term'))}")
+        info_parts.append(f"Goals - MediumTerm（阶段性规划）: {_safe_str(goals.get('MediumTerm') or goals.get('medium_term'))}")
+        info_parts.append(f"Goals - ShortTerm（当下行为）: {_safe_str(goals.get('ShortTerm') or goals.get('short_term'))}")
+    else:
+        info_parts.append("Goals: 未提供")
+
+    for key in ["ShortTermMemory", "MediumTermMemory", "LongTermMemory"]:
+        v = npc_info.get(key) or npc_info.get(key[0].lower() + key[1:])
+        if v:
+            info_parts.append(f"{key}: {_safe_str(v)}")
+
+    npc_info_str = "\n".join(info_parts) if info_parts else "未提供"
+
+    # TagList 格式化
+    tag_items = []
+    for item in tag_list:
+        if isinstance(item, dict):
+            uid = item.get("UID") or item.get("uid") or ""
+            tags = item.get("Tags") or item.get("tags") or []
+            tag_items.append({"UID": uid, "Tags": tags if isinstance(tags, list) else []})
+        else:
+            tag_items.append({"UID": "", "Tags": []})
+    tag_list_str = json.dumps(tag_items, ensure_ascii=False, indent=2) if tag_items else "[]（无周围可互动对象）"
+
+    anims = animations or [
+        "Happy", "Frustrated", "Wave", "Scared", "Shy", "Dance", "Drink", "Eat",
+        "Idle", "Sit", "Sleep", "Sing", "PickUp", "Dialogue", "Admiring",
+    ]
+    anim_str = ", ".join(anims[:30])
+
+    prompt = NPC_THINK_MAIN_PROMPT.format(
+        npc_info_json=npc_info_str,
+        tag_list_json=tag_list_str,
+        anim_str=anim_str,
+    )
+
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = (response.choices[0].message.content or "").strip()
+    if text.startswith("```"):
+        m = re.search(r"```(?:lua)?\s*\n([\s\S]*?)```", text)
+        if m:
+            text = m.group(1).strip()
+    text = (
+        text.replace("npc:Say(", "_self_:Say(")
+        .replace("npc:PlayAnim(", "_self_:PlayAnim(")
+        .replace("npc:PlayAnimLoop(", "_self_:PlayAnimLoop(")
+    )
+    return text
 
 
 def generate_npc_interaction_lua(
@@ -12,73 +115,18 @@ def generate_npc_interaction_lua(
     animations: list[str] | None = None,
 ) -> str:
     """
-    根据 UE 传入的上下文生成 NPC 互动 LUA。
-    返回包含 _self_:Say() 和 _self_:PlayAnimLoop() 的 LUA 脚本。
+    兼容旧版 API：将 PropTag/Personality/Goal 转为 Code 格式后调用 generate_npc_think_lua。
     """
-    pers = personality if isinstance(personality, dict) else {}
-    goal_data = goal if isinstance(goal, dict) else {}
-
-    extraversion = pers.get("Extraversion", pers.get("extraversion", 50))
-    try:
-        extraversion = int(extraversion)
-    except (TypeError, ValueError):
-        extraversion = 50
-
-    current_goal = str(goal_data.get("CurrentGoal", goal_data.get("current_goal", "")) or "")
-
-    # 完整 personality 供模型参考（排除已单独展示的）
-    pers_str = json.dumps(pers, ensure_ascii=False) if pers else "未指定"
-
-    anims = animations or [
-        "Happy", "Frustrated", "Wave", "Scared", "Shy", "Dance", "Drink", "Eat",
-        "Idle", "Sit", "Sleep", "Sing", "PickUp", "Dialogue", "Admiring",
-    ]
-    anim_str = ", ".join(anims[:30])
-
-    client = OpenAI(api_key=api_key)
-    prompt = f"""你是一个游戏 NPC 表演脚本生成器。**生成的台词和行为必须与以下三项强相关**：NPC 看到的道具、NPC 性格、NPC 当前目标。不得输出与此无关的通用台词。
-
-**1. PropTag（NPC 当前看到的物体）**  
-{prop_tag.strip() or "无"}  
-→ 台词必须针对这个物体有感而发（如看到酒聊酒、看到椅子想坐、看到食物想吃喝等）。若为空则 NPC 处于无特定关注对象的状态。
-
-**2. Personality（性格）**  
-{pers_str}  
-Extraversion 外向性 0-100：高(≥70)=开朗直接、易兴奋；低(≤40)=沉稳内敛、少言。  
-→ 台词口吻、情绪强度必须符合性格。
-
-**3. Goal（当前目标）**  
-{current_goal or "无"}  
-→ 行为需服务于该目标。例如：Relax→放松类动作(Drink/Happy/Idle/Sit)；Work→专注(Admiring/Idle)；社交→Wave/ Dialogue。
-
-**可用动画**（仅使用以下）：{anim_str}
-
-**动画 API 区分**：
-- **_self_:PlayAnim(AnimName)**：一次性蒙太奇，边说话边做的短暂手势（如 Wave 挥手、Drink 举杯、点头、摆手）。播完即止。
-- **_self_:PlayAnimLoop(AnimName, Time)**：持续/循环状态（如 Idle 站岗、Sit 坐着、Sleep 躺睡、躺地下死了）。Time=0 表示持续至下一动作。
-
-**生成规则**（三者缺一不可）：
-- 台词要对 PropTag 做出反应；口吻由 Personality 决定；动作选择由 Goal 驱动。
-- 短暂手势（打招呼、喝酒动作、高兴摆手）→ PlayAnim；持续状态（站岗、坐着、躺着）→ PlayAnimLoop。
-- 输出 2~4 行 LUA，必须用 _self_ 指代 NPC。可组合：Say + PlayAnim（边说话边做手势）或 PlayAnimLoop（保持某姿势）。
-
-**输出**：仅 LUA 代码，无 markdown 包裹。
-"""
-
-    response = client.chat.completions.create(
-        model="gpt-4.1",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = (response.choices[0].message.content or "").strip()
-    if text.startswith("```"):
-        import re
-        m = re.search(r"```(?:lua)?\s*\n([\s\S]*?)```", text)
-        if m:
-            text = m.group(1).strip()
-    # 确保使用 _self_ 指代 NPC，替换可能误写的 npc:
-    text = (
-        text.replace("npc:Say(", "_self_:Say(")
-        .replace("npc:PlayAnim(", "_self_:PlayAnim(")
-        .replace("npc:PlayAnimLoop(", "_self_:PlayAnimLoop(")
-    )
-    return text
+    goals = {}
+    if goal and isinstance(goal, dict):
+        g = goal.get("CurrentGoal") or goal.get("current_goal")
+        if g:
+            goals["ShortTerm"] = str(g)
+    code = {
+        "NPCInfo": {
+            "Personality": personality if isinstance(personality, dict) else {},
+            "Goals": goals,
+        },
+        "TagList": [{"UID": prop_tag or "", "Tags": [prop_tag] if prop_tag else []}],
+    }
+    return generate_npc_think_lua(api_key=api_key, code=code, animations=animations)

@@ -7,6 +7,15 @@ from openai import OpenAI
 
 import config
 from skills_loader import get_full_docs, get_skill_for_step
+from prompts.story_expert import (
+    STORY_BASE_RULES,
+    STORY_CONTINUE_SYSTEM,
+    STORY_CONTINUE_USER,
+    STORY_EXPAND_SYSTEM,
+    STORY_EXPAND_USER,
+)
+from prompts.planner import PLANNER_SYSTEM, PLANNER_USER, PLANNING_SKILL
+from prompts.coding_agent import CODING_BASE, CODING_FIX, CODING_USER
 
 
 def _call_chat(
@@ -54,17 +63,7 @@ def run_story_expert(
     """Agent 1: Story Expert - expand or continue story into full 奇遇剧本.
     story_mode: 'expand'=扩写（自然语言梗概→完整剧本）, 'continue'=续写（前一章→下一章）
     """
-    base_rules = """
-**重要**：
-1. 若故事涉及对弈、比赛、赌局、棋类、猜拳等，获胜/失败有不同结果，必须标注「需调用 UI.PlayMiniGame」，并写明赢/输分支。
-2. 若故事涉及**邀请某位 NPC 成为同伴**，必须标注「需调用 npc:SetAsCompanion」，并写明邀请哪位 NPC（如 Alice、铁匠等）。
-3. **单一事件**（对弈、赌局、同伴邀请、当场对话分支等）应**合并为一个 encounter**，一个 NPC 一个地点讲完；仅当故事**明确需要换场景**（如接任务→去别处→再回来交任务）时才拆成多步。
-
-输出格式 TPA：
-## Thinking - 分析核心要素、角色、冲突，是否含 MiniGame，是否为单一地点（不拆步）
-## Planning - 设计起承转合、分支、奖励；若为单一事件则明确「一个 encounter 完成」
-## Action - 完整剧本，包含：奇遇ID/名称、触发位置、参与NPC、剧情流程、道具ID；若含 MiniGame 则标注 gameType 建议；若含同伴邀请则标注 SetAsCompanion 及邀请的 NPC 名
-"""
+    base_rules = STORY_BASE_RULES
     if story_mode == "continue":
         npc_block = ""
         if previous_npc_info:
@@ -77,15 +76,11 @@ def run_story_expert(
                 ident = f"，身份/称呼：{disp}" if disp else f"，角色提示：{hint}" if hint else ""
                 lines.append(f"- {rid} → resource={res}{ident}")
             npc_block = "\n".join(lines) + "\n\n"
-        system_prompt = f"""你是一位专业的游戏剧情设计师。根据玩家提供的**前一章故事**，续写**下一章**的奇遇剧本。续写需与前一章剧情连贯，可承接角色、伏笔或世界观，输出完整的、可用于LUA脚本实现的「奇遇」剧本。
-{base_rules}
-"""
-        user_content = npc_block + f"以下为前一章故事，请续写下一章的奇遇剧本：\n\n{story_input}"
+        system_prompt = STORY_CONTINUE_SYSTEM.format(base_rules=base_rules)
+        user_content = STORY_CONTINUE_USER.format(npc_block=npc_block, story_input=story_input)
     else:
-        system_prompt = f"""你是一位专业的游戏剧情设计师。将玩家输入的简短故事梗概扩写为完整的、可用于LUA脚本实现的「奇遇」剧本。
-{base_rules}
-"""
-        user_content = f"请将以下故事扩写为完整的奇遇剧本：\n\n{story_input}"
+        system_prompt = STORY_EXPAND_SYSTEM.format(base_rules=base_rules)
+        user_content = STORY_EXPAND_USER.format(story_input=story_input)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -101,22 +96,6 @@ def run_planner(
     assets: dict | None = None,
 ) -> str:
     """Agent 2: Planner - 仅规划 Encounter 步骤（Setup 固定不生成）"""
-    planning_skill = """
-## 【强制】只输出 1 个 encounter
-
-**当前系统设计**：每次生成仅输出**一个**奇遇。复杂剧情（对弈、赌局、多分支、同伴邀请等）全部合并在这一个 encounter 内完成。续写功能用于添加新章节，不要在同一次生成中拆成多步。
-
-- **禁止**输出多个 steps，**禁止** chain 多步
-- **禁止**同一 NPC 在不同地点出现多次
-- 对弈、赌局、MiniGame、对话分支、同伴邀请、奖励发放 → **全部在一个 encounter 内**当场完成
-- 输出格式固定为仅 1 个 step：
-
-{
-  "steps": [
-    {"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "完整的单幕奇遇剧情描述", "chain": null}
-  ]
-}
-"""
     asset_note = ""
     if assets:
         npcs = ", ".join(assets.get("npcs", [])) or "无"
@@ -124,13 +103,8 @@ def run_planner(
         items = ", ".join(assets.get("items", [])) or "无"
         asset_note = f"\n素材库限制：NPC 仅可用 [{npcs}]，Enemy 仅可用 [{enemies}]，奖励道具（GiveItem/GiveWeapon/GiveEquip）仅可用 [{items}]。"
     full_docs = get_full_docs()
-    system_prompt = f"""你是一位LUA奇遇系统开发规划师。Setup 和路人NPC 已固定，只需规划奇遇(Encounter)步骤。
-{asset_note}
-
-输出格式：仅 encounter 类型步骤的 JSON。
-{planning_skill}
-"""
-    user_msg = f"规则与API：\n{full_docs[:12000]}\n\n---\n扩写故事：\n{expanded_story}\n\n请输出步骤JSON。"
+    system_prompt = PLANNER_SYSTEM.format(asset_note=asset_note, planning_skill=PLANNING_SKILL)
+    user_msg = PLANNER_USER.format(full_docs=full_docs[:12000], expanded_story=expanded_story)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_msg},
@@ -180,30 +154,7 @@ def run_coding_agent(
 """
 
     use_codex = "codex" in model.lower()
-    base_prompt = f"""你是一位精通LUA和CineText/Narrative API的资深程序员。根据以下 Skill 规范生成**绝对正确**的LUA脚本。
-{asset_constraint}
-
-=== Skill 规范（必须遵循）===
-{skill_content}
-
-=== 输出要求 ===
-1. 只输出可运行的LUA代码，不要 markdown 包裹
-2. 严格遵循 Skill 中的 Checklist 和模板
-3. FVector 格式 {{X=..., Y=..., Z=...}}
-4. NPC ID：encXX_RoleName
-5. 仅使用素材库中列出的 NPC/Enemy/Prop ID
-6. **UI.Ask**（2选项）：比较用选项文案，如 if r == "答应" then，禁止 r == "A" 或 r == true
-7. **UI.AskMany**（3+选项）：比较用选项文案，如 if choice == "血量偏低" then
-8. **奇遇位置**：奇遇间至少 1000 单位；先发生的故事离玩家更近，后发生的更远。第 1 步最近（如 12100,13500），第 2 步 1000+ 外，第 3 步再 1000+ 外。禁止返回 {{X=0,Y=0,Z=0}}
-9. **敌人生成**：剧情中若需敌人，必须用 World.SpawnEnemy(id, loc, count) 或 World.SpawnEnemyAtPlayer(id, count)，禁止把 Enemy ID 放入 npcData 或使用 World.SpawnNPC
-10. **API 规范**：仅使用 lua_atomic_modules_call_guide.md 中列出的 API（World/UI/Entity/Performer），FVector/FRotator 格式严格遵循
-11. **事件节奏**：台词/动作之间插入 World.Wait(0.8~1.5)，避免剧情同一帧执行完
-12. **动画动作**：说话与演绎中适当加入 npc:PlayAnimLoop（Happy/Frustrated/Wave/Scared/Shy/Dance 等）或 npc:PlayAnim("Drink")，根据情绪选动作
-13. **NPC 离场与收尾**：奇遇剧情**结束后必须销毁本幕所有 encounter NPC**（World.DestroyByID("encXX_npc")），避免同一 NPC 残留在场景。若 NPC 成为同伴（SetAsCompanion）则不必销毁，其余参与本幕的 NPC 在剧情结束时销毁。
-14. **同伴邀请**：若剧情涉及邀请某位 NPC 成为同伴，在 UI.Ask 的「答应/接受」分支内调用 `npc:SetAsCompanion()` 并 `UI.Toast("XXX成为同伴")`（XXX 为 NPC 角色名）
-15. **MiniGame**：若描述含对弈、比赛、赌局、棋类，赢/输有不同结果，必须用 UI.PlayMiniGame(gameType, lv)，**gameType 仅可用素材库 minigames 中的 ID**（如 TTT），**在同一 encounter 内**根据 result == "Success" 当场分支处理奖励/惩罚，禁止拆成两个 encounter
-16. **单奇遇格式**：当步骤名为 SpawnEncounter_main 时，函数名与调用必须为 `function SpawnEncounter_main()` 和 `SpawnEncounter_main()`，World.SpawnEncounter 的 range 用 220.0
-"""
+    base_prompt = CODING_BASE.format(asset_constraint=asset_constraint, skill_content=skill_content)
 
     # 连续奇遇上下文
     chain = step.get("chain")
@@ -245,12 +196,8 @@ def run_coding_agent(
         loc_hint = f"\n=== 【奇遇位置】本步骤为第 {order} 步（共 {total_steps} 步），应距第 1 步至少 {(order-1)*1000} 单位，Z 必须为地面高度 {GROUND_Z}，如 {{X={ENCOUNTER_BASE_X + offset}, Y={ENCOUNTER_BASE_Y}, Z={GROUND_Z}}} 或 {{X={ENCOUNTER_BASE_X - offset}, Y={ENCOUNTER_BASE_Y - offset}, Z={GROUND_Z}}} ==="
 
     if validation_errors:
-        fix_prompt = f"""
-=== 上一版代码未通过校验，请修正以下问题后重新输出 ===
-{chr(10).join('- ' + e for e in validation_errors)}
-
-请输出修正后的完整代码。
-"""
+        fix_errors_str = "\n".join("- " + e for e in validation_errors)
+        fix_prompt = CODING_FIX.format(validation_errors=fix_errors_str)
     else:
         fix_prompt = ""
 
@@ -273,17 +220,18 @@ def run_coding_agent(
             lines.append(f"- {rid} → resource={res}，身份/称呼：{disp}")
         previous_npc_ref = "\n".join(lines) + "\n\n"
 
-    user_msg = f"""步骤: {step_name} (type={step_type})
-描述: {step_desc}
-{chain_context}{loc_hint}{npc_ref}{previous_npc_ref}{fix_prompt}
-
-扩写故事（剧情参考）:
-{expanded_story[:2500]}
-
-已生成前序代码:
-{previous_code[:2000] if previous_code else "（无）"}
-
-请生成本步骤的LUA代码。"""
+    user_msg = CODING_USER.format(
+        step_name=step_name,
+        step_desc=step_desc,
+        step_type=step_type,
+        chain_context=chain_context,
+        loc_hint=loc_hint,
+        npc_ref=npc_ref,
+        previous_npc_ref=previous_npc_ref,
+        fix_prompt=fix_prompt,
+        expanded_story=expanded_story[:2500],
+        previous_code=previous_code[:2000] if previous_code else "（无）",
+    )
 
     full_input = f"{base_prompt}\n\n{user_msg}"
 

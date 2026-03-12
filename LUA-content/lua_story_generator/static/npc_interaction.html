@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NPC 实时互动</title>
+  <title>NPC 思考</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -49,8 +49,8 @@
   <div class="container">
     <header>
       <p style="margin: 0 0 0.5rem 0;"><a href="/">← 返回 LUA 奇遇脚本生成器</a></p>
-      <h1>NPC 实时互动</h1>
-      <p class="subtitle">UE 端传入 PropTag、Personality、Goal，生成 _self_:Say / PlayAnim / PlayAnimLoop LUA 并发送回 UE</p>
+      <h1>NPC 思考</h1>
+      <p class="subtitle">支持思考(NPC_Think_Begin)与对话(NPC_Dialogue_Request)，根据 Type 生成对应 LUA</p>
       <div id="tcpStatus" class="tcp-status disconnected">
         <span class="dot" style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
         <span>未检测到客户端</span>
@@ -63,11 +63,11 @@
     </div>
 
     <div class="card">
-      <h2>📥 UE 传入 JSON</h2>
+      <h2>📥 输入 JSON（Type + Code）</h2>
       <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-        示例：PropTag、PropPos、Personality（Extraversion 等）、Goal（CurrentGoal）
+        思考：Type=NPC_Think_Begin，Code 含 NPCInfo + TagList。对话：Type=NPC_Dialogue_Request，Code 含 NPCInfo + CurrentDialogue
       </p>
-      <textarea id="ueJsonInput" placeholder='{"PropTag":"drink","PropPos":{"x":100,"y":200,"z":90},"Personality":{"Extraversion":80},"Goal":{"CurrentGoal":"Relax"}}'></textarea>
+      <textarea id="ueJsonInput" placeholder='{"Type":"NPC_Think_Begin","Code":{"NPCInfo":{"Personality":{"Extraversion":70},"Goals":{"ShortTerm":"放松休息"}},"TagList":[{"UID":"prop_drink","Tags":["drink"]}]}}'></textarea>
       <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
         <button class="btn btn-primary btn-sm" id="parseJson">解析并填充</button>
         <button class="btn btn-primary btn-sm" id="aiGenerate">AI 生成 LUA</button>
@@ -123,6 +123,7 @@
 
     let manualLuaLines = [];
     let animations = [];
+    let lastResponseType = 'NPC_Think_End';  // AI 生成后用于发送到 UE 的 Type
 
     document.getElementById('apiKey').value = localStorage.getItem(STORAGE_KEY) || '';
 
@@ -190,15 +191,20 @@
       if (!apiKey) { alert('请输入 API Key'); return; }
       localStorage.setItem(STORAGE_KEY, apiKey);
 
-      let propTag = '', propPos = null, personality = null, goal = null;
+      let typeVal = 'NPC_Think_Begin', codeVal = null;
       const raw = document.getElementById('ueJsonInput').value.trim();
       if (raw) {
         try {
           const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          propTag = j.PropTag || j.prop_tag || '';
-          propPos = j.PropPos || j.prop_pos || null;
-          personality = j.Personality || j.personality || null;
-          goal = j.Goal || j.goal || null;
+          typeVal = j.Type || j.type || 'NPC_Think_Begin';
+          codeVal = j.Code || j.code || null;
+          if (!codeVal && (j.NPCInfo || j.TagList || j.CurrentDialogue !== undefined)) {
+            codeVal = {
+              NPCInfo: j.NPCInfo || {},
+              TagList: j.TagList || [],
+              CurrentDialogue: j.CurrentDialogue || ''
+            };
+          }
         } catch (_) {}
       }
 
@@ -210,17 +216,16 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            Type: typeVal,
+            Code: codeVal,
             api_key: apiKey,
-            prop_tag: propTag,
-            prop_pos: propPos,
-            personality: personality,
-            goal: goal,
           }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || '生成失败');
-        document.getElementById('luaOutput').value = d.lua || '';
-        manualLuaLines = (d.lua || '').split('\n').filter(Boolean);
+        lastResponseType = d.Type || d.type || (typeVal === 'NPC_Dialogue_Request' ? 'NPC_Dialogue_Reply' : 'NPC_Think_End');
+        document.getElementById('luaOutput').value = d.lua || d.Code || '';
+        manualLuaLines = (d.lua || d.Code || '').split('\n').filter(Boolean);
         document.getElementById('manualLines').textContent = manualLuaLines.join('\n');
       } catch (e) {
         alert('生成失败: ' + e.message);
@@ -237,7 +242,7 @@
         const r = await fetch(API_BASE + '/api/send-to-unreal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'NPCInteraction', code: code }),
+          body: JSON.stringify({ type: lastResponseType, code: code }),
         });
         const d = await r.json();
         if (r.ok && d.sent_to > 0) {

@@ -1,13 +1,13 @@
 ---
 name: lua-npc-interaction-performance
-description: Generates LUA for NPC real-time interaction (表演/演绎). Use when UE sends PropTag, Personality, Goal - generate Say dialogue, PlayAnim (one-shot), and PlayAnimLoop (sustained) based on context.
+description: Generates LUA for NPC 思考 (表演/演绎). Use when UE/Web sends Type=NPC_Think_Begin, Code={NPCInfo, TagList} - generate Say/PlayAnim/PlayAnimLoop based on Favorability, MoralTendency, Personality, Goals, TagList.
 ---
 
-# LUA NPC Interaction Performance Skill
+# LUA NPC 思考 / 表演 Skill
 
 ## 何时加载
 
-当 UE 端传入 NPC 互动上下文（PropTag、Personality、Goal）时，根据大五人格、目标、所见物体生成表演 LUA。
+当 UE/Web 端传入 `Type=NPC_Think_Begin`、`Code={NPCInfo, TagList}` 时，根据 NPC 信息与周围可互动对象生成表演 LUA。NPCInfo 含 Favorability、MoralTendency、Personality（大五）、Goals（长期/中期/短期）、Memory。
 
 ## 可用 API（LUA 表演库）
 
@@ -19,14 +19,15 @@ description: Generates LUA for NPC real-time interaction (表演/演绎). Use wh
 | _self_:PlayAnimLoop(AnimName, Time) | 播放动画并**持续指定时间**（循环或保持）。如站岗、躺地、坐着休息。 | 站岗、躺地下死了、坐着喝酒、趴着睡觉等 |
 | _self_:Say(Text) | 头顶显示气泡对话。脚本挂起直到显示时间结束，默认 3 秒 | 任意台词 |
 
-## 生成原则（三者缺一不可）
+## 生成原则
 
-生成的台词和行为**必须同时反映**：NPC 看到的道具、NPC 性格、NPC 当前目标。
+生成的台词和行为**必须同时反映**：TagList（周围可互动对象）、Personality（性格）、Goals（尤其是 ShortTerm 当下行为）。
 
-- **PropTag（所见物体）**：台词须对该物体有感而发。drink→喝酒台词+Drink；food→Eat；chair→Sit；无物体→无特定关注
-- **Personality（性格）**：口吻、情绪强度由 Extraversion 等决定。高=开朗直接；低=沉稳内敛
-- **Goal（当前目标）**：动作服务于目标。Relax→Drink/Happy/Idle/Sit；Work→Admiring/Idle；Social→Wave/Dialogue
-- **PlayAnim vs PlayAnimLoop**：短暂手势（挥手、举杯、点头）→ PlayAnim；持续状态（站岗、坐着、躺着）→ PlayAnimLoop
+- **TagList（周围对象）**：台词须对某对象有感而发。drink→喝酒+Drink；food→Eat；chair→Sit
+- **Personality（大五）**：口吻、情绪由 Extraversion 等决定。高=开朗；低=沉稳
+- **Goals**：LongTerm=人生信念，MediumTerm=阶段性规划，ShortTerm=当下行为 → 动作服务于目标
+- **Favorability / MoralTendency**：影响对玩家态度与道德相关台词
+- **PlayAnim vs PlayAnimLoop**：短暂手势→PlayAnim；持续状态→PlayAnimLoop
 
 ## 动画库（来自 DT_AnimStartTable / DT_MontageTable）
 
