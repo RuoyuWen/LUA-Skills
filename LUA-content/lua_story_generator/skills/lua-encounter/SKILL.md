@@ -13,6 +13,7 @@ description: Generates LUA Encounter scripts for CineText/Narrative. Use when ge
 
 - [ ] 有 `if _G.encXX_done then return end` 和 `_G.encXX_done = true`
 - [ ] 对 player 和所有 NPC 做了 `if not obj or not obj:IsValid() then return end`
+- [ ] **奇遇结束时销毁本幕所有 encounter NPC**（成为同伴的除外）：在剧情收尾处调用 `World.DestroyByID("encXX_npc")` 等，避免 NPC 残留在场景
 - [ ] 奖励使用 `npc:GiveItem(id,count)` / `GiveWeapon` / `GiveEquip`，不能用 Toast 代替
 - [ ] UI.Ask / UI.AskMany 返回值必须用**选项的实际文案**比较，禁止用 "A"、"B" 或 true
 - [ ] 仅使用 lua_atomic_modules_call_guide.md 中存在的 API
@@ -137,10 +138,11 @@ npc:GiveWeapon("TestSword", 1)
 
 ## 演绎后 NPC 处理（rule 13.7）
 
-若剧情需要 NPC 离开场景，可调用：
-- `World.DestroyByID("encXX_npc")` — 按 ID 销毁
+**奇遇结束时必须销毁本幕所有 encounter NPC**（成为同伴 SetAsCompanion 的除外），避免同一 NPC 残留在场景或在不同位置重复出现。
+
+- `World.DestroyByID("encXX_npc")` — 按 ID 销毁（推荐，在剧情收尾处对每个 encounter NPC 调用）
 - `npc:Destroy()` 或 `World.Destroy(npc)` — 按对象销毁
-- `npc:SetVisible(false)` — 仅隐藏，不销毁
+- `npc:SetVisible(false)` — 仅隐藏，不销毁（不推荐用于收尾，应优先 Destroy）
 
 ## UI.Ask / UI.AskMany 规范（强制）
 

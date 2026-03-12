@@ -47,6 +47,33 @@ def _inject_encounter_location(code: str, user_loc: dict) -> str:
     return code
 
 
+def _extract_previous_npc_info(init_event_code: str) -> list[dict]:
+    """从上一幕 InitEvent 代码中提取 NPC 信息（ID、resource、身份），供续写时参考。"""
+    if not init_event_code or not init_event_code.strip():
+        return []
+    result = []
+    code = init_event_code
+    # 匹配 npcData = { enc07_drunk = "Merchant_Male", enc08_alice = "Doctor_Female" } 或类似格式
+    npc_data_match = re.search(r'npcData\s*=\s*\{([^}]+)\}', code, re.DOTALL)
+    if npc_data_match:
+        body = npc_data_match.group(1)
+        for m in re.finditer(r'(\w+)\s*=\s*["\']([^"\']+)["\']', body):
+            enc_id, resource = m.group(1), m.group(2)
+            if enc_id.startswith("enc") and resource:
+                role_hint = enc_id.split("_")[-1] if "_" in enc_id else enc_id.replace("enc", "")
+                result.append({"id": enc_id, "resource": resource, "role_hint": role_hint, "role_display": None})
+    # 从 UI.ShowDialogue("角色名", ...) 提取对话中的身份称呼，按出现顺序关联
+    dialogue_names = []
+    for m in re.finditer(r'UI\.ShowDialogue\s*\(\s*["\']([^"\']+)["\']', code):
+        name = m.group(1).strip()
+        if name and len(name) <= 20 and not name.startswith("enc") and name not in dialogue_names:
+            dialogue_names.append(name)
+    for i, r in enumerate(result):
+        if i < len(dialogue_names):
+            r["role_display"] = dialogue_names[i]
+    return result
+
+
 def run_full_pipeline(
     story_input: str,
     api_key: str,
@@ -57,6 +84,7 @@ def run_full_pipeline(
     encounter_locations: list[dict] | None = None,
     story_mode: str = "expand",
     init_map_code: str | None = None,
+    previous_init_event: str | None = None,
 ) -> dict:
     """
     Execute: Story Expert -> Planner -> Coding Agent (encounters only).
@@ -71,15 +99,21 @@ def run_full_pipeline(
     else:
         npc_located = get_npc_located_code()
 
-    expanded_story = run_story_expert(client, story_input, story_model, story_mode=story_mode)
+    previous_npc_info = []
+    if story_mode == "continue" and previous_init_event and previous_init_event.strip():
+        previous_npc_info = _extract_previous_npc_info(previous_init_event)
+
+    expanded_story = run_story_expert(client, story_input, story_model, story_mode=story_mode,
+                                     previous_npc_info=previous_npc_info)
     plan_output = run_planner(client, expanded_story, planning_model, assets=assets)
     steps = extract_steps_from_planner_output(plan_output)
     steps = [s for s in steps if str(s.get("type", "")).lower() == "encounter"]
+    # 【强制单奇遇】仅保留第 1 个 step，禁止多步
+    if steps:
+        steps = [steps[0]]
     if not steps:
         steps = [{"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "Main encounter"}]
-    # 单奇遇时使用 SpawnEncounter_main，符合正确格式
-    if len(steps) == 1:
-        steps[0]["name"] = "SpawnEncounter_main"
+    steps[0]["name"] = "SpawnEncounter_main"
 
     previous_code = ""
     init_event_parts = []
@@ -90,6 +124,7 @@ def run_full_pipeline(
             assets=assets, all_steps=steps, step_index=i,
             npc_located_context=npc_located,
             encounter_locations=encounter_locations,
+            previous_npc_info=previous_npc_info,
         )
         code = _clean_code_output(code)
         user_loc = None
@@ -145,6 +180,7 @@ def _generate_step_with_validation(
     step_index: int = 0,
     npc_located_context: str = "",
     encounter_locations: list[dict] | None = None,
+    previous_npc_info: list[dict] | None = None,
 ) -> str:
     """Generate code for one step, with validation feedback loop for Encounter."""
     def _call_agent(errors=None):
@@ -153,6 +189,7 @@ def _generate_step_with_validation(
             validation_errors=errors, assets=assets, all_steps=all_steps or [],
             step_index=step_index, npc_located_context=npc_located_context,
             encounter_locations=encounter_locations,
+            previous_npc_info=previous_npc_info or [],
         )
 
     code = _call_agent(errors=None)

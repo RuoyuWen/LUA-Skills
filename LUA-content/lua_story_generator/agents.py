@@ -49,6 +49,7 @@ def run_story_expert(
     story_input: str,
     model: str,
     story_mode: str = "expand",
+    previous_npc_info: list[dict] | None = None,
 ) -> str:
     """Agent 1: Story Expert - expand or continue story into full 奇遇剧本.
     story_mode: 'expand'=扩写（自然语言梗概→完整剧本）, 'continue'=续写（前一章→下一章）
@@ -65,10 +66,21 @@ def run_story_expert(
 ## Action - 完整剧本，包含：奇遇ID/名称、触发位置、参与NPC、剧情流程、道具ID；若含 MiniGame 则标注 gameType 建议；若含同伴邀请则标注 SetAsCompanion 及邀请的 NPC 名
 """
     if story_mode == "continue":
+        npc_block = ""
+        if previous_npc_info:
+            lines = ["=== 【前一幕 NPC 信息】（续写时可复用这些角色，保持 resource 与身份一致）==="]
+            for n in previous_npc_info:
+                rid = n.get("id", "")
+                res = n.get("resource", "")
+                hint = n.get("role_hint", "")
+                disp = n.get("role_display", "")
+                ident = f"，身份/称呼：{disp}" if disp else f"，角色提示：{hint}" if hint else ""
+                lines.append(f"- {rid} → resource={res}{ident}")
+            npc_block = "\n".join(lines) + "\n\n"
         system_prompt = f"""你是一位专业的游戏剧情设计师。根据玩家提供的**前一章故事**，续写**下一章**的奇遇剧本。续写需与前一章剧情连贯，可承接角色、伏笔或世界观，输出完整的、可用于LUA脚本实现的「奇遇」剧本。
 {base_rules}
 """
-        user_content = f"以下为前一章故事，请续写下一章的奇遇剧本：\n\n{story_input}"
+        user_content = npc_block + f"以下为前一章故事，请续写下一章的奇遇剧本：\n\n{story_input}"
     else:
         system_prompt = f"""你是一位专业的游戏剧情设计师。将玩家输入的简短故事梗概扩写为完整的、可用于LUA脚本实现的「奇遇」剧本。
 {base_rules}
@@ -90,23 +102,18 @@ def run_planner(
 ) -> str:
     """Agent 2: Planner - 仅规划 Encounter 步骤（Setup 固定不生成）"""
     planning_skill = """
-## 输出 JSON 步骤列表（仅 type=encounter，不要 setup）
+## 【强制】只输出 1 个 encounter
 
-**核心原则：一个故事一个 NPC 一个地点**
-- 对弈、赌局、MiniGame、对话分支等**当场完成**的剧情 → **只生成 1 个 encounter**，一个 NPC 在一个地点讲完，禁止拆成「下棋 encounter」+「领奖 encounter」
-- **连续奇遇 (chain)** 仅当故事**明确需要换场景**（如接任务→去森林→回酒馆交任务）时才拆成多步
+**当前系统设计**：每次生成仅输出**一个**奇遇。复杂剧情（对弈、赌局、多分支、同伴邀请等）全部合并在这一个 encounter 内完成。续写功能用于添加新章节，不要在同一次生成中拆成多步。
 
-**关键**：必须判断是「独立奇遇」还是「连续奇遇」：
-- **独立奇遇**：每个故事互不关联，**一个 NPC 一个地点**完成 → chain 为 null
-- **连续奇遇**：需换场景的多步任务 → 同 chain 设 chainOrder、isFinal
-
-**MiniGame**：对弈/赌局等，在**同一 encounter 内**完成 PlayMiniGame 并当场发放奖励/惩罚，description 含「PlayMiniGame」「对弈」等关键词。
-**同伴邀请**：若故事涉及邀请某位 NPC 成为同伴，description 含「SetAsCompanion」「成为同伴」「邀请加入」等关键词。
+- **禁止**输出多个 steps，**禁止** chain 多步
+- **禁止**同一 NPC 在不同地点出现多次
+- 对弈、赌局、MiniGame、对话分支、同伴邀请、奖励发放 → **全部在一个 encounter 内**当场完成
+- 输出格式固定为仅 1 个 step：
 
 {
   "steps": [
-    {"id": 1, "name": "SpawnEncounter_xxx", "type": "encounter", "description": "...", "chain": null},
-    {"id": 2, "name": "SpawnEncounter_yyy", "type": "encounter", "description": "...", "chain": "quest_name", "chainOrder": 2, "isFinal": true}
+    {"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "完整的单幕奇遇剧情描述", "chain": null}
   ]
 }
 """
@@ -143,6 +150,7 @@ def run_coding_agent(
     step_index: int = 0,
     npc_located_context: str = "",
     encounter_locations: Optional[list[dict]] = None,
+    previous_npc_info: Optional[list[dict]] = None,
 ) -> str:
     """
     Agent 3: Coding Agent - generate LUA using Skills.
@@ -191,7 +199,7 @@ def run_coding_agent(
 10. **API 规范**：仅使用 lua_atomic_modules_call_guide.md 中列出的 API（World/UI/Entity/Performer），FVector/FRotator 格式严格遵循
 11. **事件节奏**：台词/动作之间插入 World.Wait(0.8~1.5)，避免剧情同一帧执行完
 12. **动画动作**：说话与演绎中适当加入 npc:PlayAnimLoop（Happy/Frustrated/Wave/Scared/Shy/Dance 等）或 npc:PlayAnim("Drink")，根据情绪选动作
-13. **NPC 离场**：若剧情需 NPC 离开，可调用 World.DestroyByID("encXX_npc") 或 npc:SetVisible(false)
+13. **NPC 离场与收尾**：奇遇剧情**结束后必须销毁本幕所有 encounter NPC**（World.DestroyByID("encXX_npc")），避免同一 NPC 残留在场景。若 NPC 成为同伴（SetAsCompanion）则不必销毁，其余参与本幕的 NPC 在剧情结束时销毁。
 14. **同伴邀请**：若剧情涉及邀请某位 NPC 成为同伴，在 UI.Ask 的「答应/接受」分支内调用 `npc:SetAsCompanion()` 并 `UI.Toast("XXX成为同伴")`（XXX 为 NPC 角色名）
 15. **MiniGame**：若描述含对弈、比赛、赌局、棋类，赢/输有不同结果，必须用 UI.PlayMiniGame(gameType, lv)，**gameType 仅可用素材库 minigames 中的 ID**（如 TTT），**在同一 encounter 内**根据 result == "Success" 当场分支处理奖励/惩罚，禁止拆成两个 encounter
 16. **单奇遇格式**：当步骤名为 SpawnEncounter_main 时，函数名与调用必须为 `function SpawnEncounter_main()` 和 `SpawnEncounter_main()`，World.SpawnEncounter 的 range 用 220.0
@@ -255,9 +263,19 @@ def run_coding_agent(
 奇遇可复用这些 NPC 类型（Merchant_Male, Hunter_Male 等），或使用 npcData 生成新的 encounter NPC。
 """
 
+    previous_npc_ref = ""
+    if previous_npc_info:
+        lines = ["=== 【前一幕 NPC 信息】（续写时复用，保持 resource 与身份一致）==="]
+        for n in previous_npc_info:
+            rid = n.get("id", "")
+            res = n.get("resource", "")
+            disp = n.get("role_display") or n.get("role_hint", "")
+            lines.append(f"- {rid} → resource={res}，身份/称呼：{disp}")
+        previous_npc_ref = "\n".join(lines) + "\n\n"
+
     user_msg = f"""步骤: {step_name} (type={step_type})
 描述: {step_desc}
-{chain_context}{loc_hint}{npc_ref}{fix_prompt}
+{chain_context}{loc_hint}{npc_ref}{previous_npc_ref}{fix_prompt}
 
 扩写故事（剧情参考）:
 {expanded_story[:2500]}

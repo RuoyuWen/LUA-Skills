@@ -5,78 +5,53 @@ description: Plans LUA encounter development steps from expanded story. Use when
 
 # LUA Planning Skill
 
+## 【强制】每次仅输出 1 个 encounter
+
+**当前系统设计**：每次生成只输出**一个**奇遇。续写功能用于添加新章节，不要在同一次生成中拆成多步。
+
+- **禁止**输出多个 steps
+- **禁止** chain 多步
+- 复杂剧情（对弈、赌局、多分支、同伴邀请等）**全部合并**在这一个 encounter 内完成
+- 一个 NPC 一个地点，禁止同一 NPC 在不同地点出现多次
+
 ## 标准流程（rule.md）
 
 1. Setup 初始化地图
 2. Build 世界
 3. 生成常驻 NPC（可选）
-4. 注册 Encounter（1~N）
+4. 注册 Encounter（当前仅 1 个）
 5. StartGame + Time.Resume
 
-## 核心原则：一个故事一个 NPC 一个地点
-
-**单一事件**（对弈、赌局、对话分支、当场给奖励）：**只生成 1 个 encounter**，一个 NPC 在一个地点把故事讲完。禁止拆成多个 encounter、多个 NPC。
-
-**连续奇遇 (chain)**：仅当故事**明确需要换场景或延后**时才拆分，例如「接任务（酒馆）→ 去森林打狼 → 回酒馆交任务」需 3 个不同地点。
-
-## 两种奇遇模式（必须正确标注）
-
-### 独立奇遇（无 chain）
-每个奇遇是**完整独立**的故事，**一个 NPC 一个地点**讲完。对弈、赌局、MiniGame 等当场分出胜负并发放奖励的，**全部合并为一个 encounter**。
-
-### 连续奇遇（有 chain）
-仅当故事需要**换场景**（如去森林、再回酒馆）时才拆分为多步。同一 chain 的多步对应不同地点或不同阶段。
-
-- 同一 chain 的 steps 共享 `chain` 名称（如 `"drunkard_ring"`）
-- `chainOrder`：在该 chain 中的顺序 1,2,3...
-- `isFinal`：是否为该 chain 的最后一环（**只有最后一环可发放奖励**）
-
-## 输出格式
+## 输出格式（仅 1 个 step）
 
 ```json
 {
   "steps": [
-    {"id": 1, "name": "SpawnEncounter_xxx", "type": "encounter", "description": "...", "chain": null},
-    {"id": 2, "name": "SpawnEncounter_yyy", "type": "encounter", "description": "...", "chain": null}
+    {"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "完整的单幕奇遇剧情描述", "chain": null}
   ]
 }
 ```
 
-**独立奇遇示例**（三个互不相关的故事）：
+**注意**：name 固定为 `SpawnEncounter_main`，chain 固定为 null。
+
+## 示例（对弈/赌局 - 单 encounter 完成）
+
 ```json
 {
   "steps": [
-    {"id": 1, "name": "SpawnEncounter_Blacksmith", "type": "encounter", "description": "铁匠委托，完成后得剑", "chain": null},
-    {"id": 2, "name": "SpawnEncounter_Merchant", "type": "encounter", "description": "商人讨价还价，完成后得金币", "chain": null}
+    {"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "酒吧门口老人邀玩家下棋，PlayMiniGame 获胜得 TestSword，失败被骂。同一 NPC 同一地点完成。", "chain": null}
   ]
 }
 ```
 
-**连续奇遇示例**（醉汉戒指：接任务→打狼得戒指→归还得奖励）：
+## 示例（同伴邀请 - 单 encounter）
+
 ```json
 {
   "steps": [
-    {"id": 1, "name": "SpawnEncounter_DrunkardOffer", "type": "encounter", "description": "酒馆门口醉汉请求找戒指，玩家答应/拒绝", "chain": "drunkard_ring", "chainOrder": 1, "isFinal": false},
-    {"id": 2, "name": "SpawnEncounter_ForestWolf", "type": "encounter", "description": "北边森林击败野狼获得戒指", "chain": "drunkard_ring", "chainOrder": 2, "isFinal": false},
-    {"id": 3, "name": "SpawnEncounter_DrunkardReturn", "type": "encounter", "description": "归还戒指给醉汉，获得 TestSword 奖励", "chain": "drunkard_ring", "chainOrder": 3, "isFinal": true}
+    {"id": 1, "name": "SpawnEncounter_main", "type": "encounter", "description": "森林边遇 Alice，玩家可选择邀请成为同伴，SetAsCompanion 后 Toast。", "chain": null}
   ]
 }
-```
-
-## MiniGame 奇遇（对弈/比赛/赌局）
-
-若故事涉及**与 NPC 对弈、棋类、赌局、比赛**，赢/输有不同结果：**只生成 1 个 encounter**，在该 encounter 内完成邀请→PlayMiniGame→当场发放奖励/惩罚。**禁止拆成「下棋 encounter」+「领奖 encounter」两个步骤**。
-
-```json
-{"id": 1, "name": "SpawnEncounter_OldManChess", "type": "encounter", "description": "酒吧门口老人邀玩家下棋，PlayMiniGame 获胜得 TestSword，失败被骂。同一 NPC 同一地点完成。", "chain": null}
-```
-
-## 同伴邀请奇遇
-
-若故事涉及**邀请某位 NPC 成为同伴**：**只生成 1 个 encounter**，在该 encounter 内完成对话→UI.Ask 选择→玩家答应时调用 SetAsCompanion 并 Toast。description 含「SetAsCompanion」「成为同伴」等。
-
-```json
-{"id": 1, "name": "SpawnEncounter_AliceCompanion", "type": "encounter", "description": "森林边遇 Alice，玩家可选择邀请成为同伴，SetAsCompanion 后 Toast。", "chain": null}
 ```
 
 ## step.type 取值

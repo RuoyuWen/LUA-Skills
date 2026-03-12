@@ -265,22 +265,14 @@
     <header>
       <h1>LUA 奇遇脚本生成器</h1>
       <p class="subtitle">输入自然语言故事，多 Agent AI 自动生成符合规则的 LUA 奇遇脚本</p>
+      <div style="margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+        <a href="/npc-interaction" class="btn btn-primary" style="text-decoration: none;">NPC 实时互动</a>
+      </div>
       <div id="tcpStatus" class="tcp-status disconnected">
         <span class="dot"></span>
         <span>未检测到客户端</span>
       </div>
     </header>
-
-    <div class="card" id="ueFeedbackCard">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-        <h2 style="margin: 0;">📡 UE 端反馈</h2>
-        <button type="button" class="btn btn-sm btn-primary" id="ueFeedbackClear" style="font-size: 0.8rem;">清空</button>
-      </div>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">Unreal 端通过 TCP 发送 <code>{"cmd":"report","msg":"..."}</code> 时，消息会在此显示。每 2 秒自动刷新。</p>
-      <div id="ueFeedbackList" style="max-height: 200px; overflow-y: auto; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
-        <div id="ueFeedbackPlaceholder" style="color: var(--text-muted);">暂无 UE 端反馈消息</div>
-      </div>
-    </div>
 
     <div class="card">
       <h2>🔑 API 配置</h2>
@@ -493,6 +485,17 @@
         <textarea class="output-block large output-textarea" id="fullScriptContent" style="max-height: 500px;" placeholder="生成后将在此显示完整拼装脚本，也可手动输入或编辑..."></textarea>
       </div>
     </div>
+
+    <div class="card" id="ueFeedbackCard">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <h2 style="margin: 0;">📡 UE 端反馈</h2>
+        <button type="button" class="btn btn-sm btn-primary" id="ueFeedbackClear" style="font-size: 0.8rem;">清空</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">Unreal 端通过 TCP 发送 <code>{"cmd":"report","msg":"..."}</code> 时，消息会在此显示。每 2 秒自动刷新。</p>
+      <div id="ueFeedbackList" style="max-height: 200px; overflow-y: auto; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+        <div id="ueFeedbackPlaceholder" style="color: var(--text-muted);">暂无 UE 端反馈消息</div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -571,8 +574,8 @@
       const hint = document.getElementById('storyModeHint');
       const ta = document.getElementById('storyInput');
       if (mode === 'continue') {
-        if (hint) hint.textContent = '粘贴前一章故事，AI 续写下一章';
-        if (ta) ta.placeholder = '粘贴前一章的完整故事内容，AI 将基于此续写下一章的奇遇剧情...';
+        if (hint) hint.textContent = '粘贴前一章故事，AI 续写下一章（将自动读取「按阶段」中 InitEvent 的 NPC 信息）';
+        if (ta) ta.placeholder = '粘贴前一章的完整故事内容，AI 将基于此续写下一章。系统会自动读取上一幕 InitEvent 中的 NPC（id、resource、身份）供续写参考。';
       } else {
         if (hint) hint.textContent = '输入自然语言梗概，AI 扩写为完整剧本';
         if (ta) ta.placeholder = '例如：玩家在酒馆门口遇到一个醉汉，醉汉请求帮忙找失落的戒指。如果答应，要去北边森林打败蜘蛛得到戒指，回来交给他可获得一把剑。如果不答应，醉汉会失落离开。';
@@ -765,6 +768,9 @@
           initMapTa.value = NPC_MAP.replaceNpcBlockInLua(initMapTa.value);
         }
         const initMapCode = initMapTa && initMapTa.value && initMapTa.value.trim() ? initMapTa.value.trim() : null;
+        const storyMode = document.getElementById('storyMode')?.value || 'expand';
+        const initEventTa = document.querySelector('.stage-code[data-type="InitEvent"]');
+        const previousInitEvent = (storyMode === 'continue' && initEventTa && initEventTa.value && initEventTa.value.trim()) ? initEventTa.value.trim() : null;
         const res = await fetch(API_BASE + '/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -774,12 +780,13 @@
             story_model: document.getElementById('storyModel').value,
             planning_model: document.getElementById('planningModel').value,
             coding_model: document.getElementById('codingModel').value,
-            story_mode: document.getElementById('storyMode')?.value || 'expand',
+            story_mode: storyMode,
             assets: assets,
             encounter_locations: (NPC_MAP.encounters || []).length > 0
               ? NPC_MAP.encounters.map(e => ({ x: Math.round(e.x), y: Math.round(e.y), z: e.z || 90 }))
               : undefined,
             init_map_code: initMapCode,
+            previous_init_event: previousInitEvent,
           }),
         });
         const data = await res.json();

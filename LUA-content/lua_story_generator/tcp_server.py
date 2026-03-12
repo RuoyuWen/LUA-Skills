@@ -153,6 +153,33 @@ def _handle_request(raw: str) -> dict:
     elif cmd == "ping" or cmd == "health":
         return {"ok": True, "msg": "pong"}
 
+    elif cmd == "npc_interaction" or cmd == "npc-interaction":
+        api_key = req.get("api_key", "").strip()
+        if not api_key:
+            return {"ok": False, "error": "API Key is required for npc_interaction"}
+        prop_tag = req.get("PropTag") or req.get("prop_tag", "")
+        prop_pos = req.get("PropPos") or req.get("prop_pos")
+        personality = req.get("Personality") or req.get("personality")
+        goal = req.get("Goal") or req.get("goal")
+        try:
+            from datatable_loader import load_resources
+            res = load_resources()
+            animations = res.get("animations", [])
+            if not animations:
+                animations = ["Happy", "Frustrated", "Wave", "Drink", "Eat", "Idle", "Sit", "Dance", "Shy", "Dialogue"]
+            from npc_interaction import generate_npc_interaction_lua
+            lua = generate_npc_interaction_lua(
+                api_key=api_key,
+                prop_tag=str(prop_tag) if prop_tag else "",
+                prop_pos=prop_pos,
+                personality=personality,
+                goal=goal,
+                animations=animations,
+            )
+            return {"ok": True, "lua": lua}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     elif cmd == "report" or cmd == "ue_feedback" or cmd == "feedback":
         # UE 端主动上报信息，存入队列供前端展示
         push_ue_message({

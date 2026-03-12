@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NPC 实时互动</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #0d1117;
+      --bg-card: #161b22;
+      --bg-input: #21262d;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --success: #3fb950;
+      --error: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg-deep); color: var(--text); font-family: 'Noto Sans SC', sans-serif; min-height: 100vh; line-height: 1.6; }
+    .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+    header { text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+    .subtitle { color: var(--text-muted); font-size: 0.9rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem 0; }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--text-muted); }
+    input, textarea, select { width: 100%; padding: 0.6rem 1rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; }
+    textarea { min-height: 100px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .btn { display: inline-flex; align-items: center; padding: 0.6rem 1.2rem; font-size: 0.9rem; font-weight: 500; border: none; border-radius: 8px; cursor: pointer; font-family: inherit; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+    .output-block { background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: 0.5rem; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
+    .row .field { flex: 1; min-width: 120px; }
+    .tcp-status { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 20px; font-size: 0.85rem; }
+    .tcp-status.connected { background: rgba(63, 185, 80, 0.2); color: var(--success); }
+    .tcp-status.disconnected { background: var(--bg-input); color: var(--text-muted); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <p style="margin: 0 0 0.5rem 0;"><a href="/">← 返回 LUA 奇遇脚本生成器</a></p>
+      <h1>NPC 实时互动</h1>
+      <p class="subtitle">UE 端传入 PropTag、Personality、Goal，生成 _self_:Say / _self_:PlayAnimLoop LUA 并发送回 UE</p>
+      <div id="tcpStatus" class="tcp-status disconnected">
+        <span class="dot" style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
+        <span>未检测到客户端</span>
+      </div>
+    </header>
+
+    <div class="card">
+      <h2>🔑 API Key</h2>
+      <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off">
+    </div>
+
+    <div class="card">
+      <h2>📥 UE 传入 JSON</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+        示例：PropTag、PropPos、Personality（Extraversion 等）、Goal（CurrentGoal）
+      </p>
+      <textarea id="ueJsonInput" placeholder='{"PropTag":"drink","PropPos":{"x":100,"y":200,"z":90},"Personality":{"Extraversion":80},"Goal":{"CurrentGoal":"Relax"}}'></textarea>
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <button class="btn btn-primary btn-sm" id="parseJson">解析并填充</button>
+        <button class="btn btn-primary btn-sm" id="aiGenerate">AI 生成 LUA</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>✏️ 手动构建</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">选择函数并填写参数，可追加多行</p>
+      <div class="row" style="margin-bottom: 0.75rem;">
+        <div class="field">
+          <label>函数</label>
+          <select id="funcSelect">
+            <option value="Say">_self_:Say(Text)</option>
+            <option value="PlayAnimLoop">_self_:PlayAnimLoop(AnimName, Time)</option>
+          </select>
+        </div>
+        <div class="field" id="sayParam" style="min-width: 200px;">
+          <label>台词 Text</label>
+          <input type="text" id="sayText" placeholder="例如：免费的啤酒，太好了！">
+        </div>
+        <div class="field" id="animParams" style="display: none;">
+          <label>AnimName</label>
+          <select id="animSelect"></select>
+        </div>
+        <div class="field" id="timeParam" style="display: none; min-width: 80px;">
+          <label>Time</label>
+          <input type="number" id="animTime" value="0" step="0.5" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn btn-primary btn-sm" id="addLine">添加</button>
+        </div>
+      </div>
+      <div id="manualLines" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-top: 0.5rem;"></div>
+    </div>
+
+    <div class="card">
+      <h2>📤 生成结果</h2>
+      <textarea id="luaOutput" class="output-block" style="min-height: 120px;" placeholder="AI 生成或手动构建的 LUA 将显示在此..."></textarea>
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+        <button class="btn btn-primary" id="sendToUE">发送到 UE</button>
+        <button class="btn btn-primary btn-sm" id="copyLua">复制</button>
+      </div>
+      <p id="sendStatus" style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);"></p>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const STORAGE_KEY = 'lua_gen_api_key';
+
+    let manualLuaLines = [];
+    let animations = [];
+
+    document.getElementById('apiKey').value = localStorage.getItem(STORAGE_KEY) || '';
+
+    document.getElementById('funcSelect').onchange = function() {
+      const v = this.value;
+      document.getElementById('sayParam').style.display = v === 'Say' ? 'block' : 'none';
+      document.getElementById('animParams').style.display = v === 'PlayAnimLoop' ? 'block' : 'none';
+      document.getElementById('timeParam').style.display = v === 'PlayAnimLoop' ? 'block' : 'none';
+    };
+
+    async function loadAnimations() {
+      try {
+        const r = await fetch(API_BASE + '/api/resources');
+        const d = await r.json();
+        animations = d.animations || [];
+        if (!animations.length) {
+          animations = ['Happy', 'Frustrated', 'Wave', 'Drink', 'Eat', 'Idle', 'Sit', 'Dance', 'Shy', 'Dialogue'];
+        }
+        const sel = document.getElementById('animSelect');
+        sel.innerHTML = animations.map(a => `<option value="${a}">${a}</option>`).join('');
+      } catch (_) {
+        animations = ['Happy', 'Drink', 'Idle'];
+        document.getElementById('animSelect').innerHTML = animations.map(a => `<option value="${a}">${a}</option>`).join('');
+      }
+    }
+    loadAnimations();
+
+    function getLuaFromManual() {
+      return manualLuaLines.join('\n');
+    }
+
+    document.getElementById('addLine').onclick = function() {
+      const fn = document.getElementById('funcSelect').value;
+      let line = '';
+      if (fn === 'Say') {
+        const t = document.getElementById('sayText').value.trim();
+        if (!t) { alert('请输入台词'); return; }
+        line = `_self_:Say("${t.replace(/"/g, '\\"')}")`;
+      } else {
+        const anim = document.getElementById('animSelect').value;
+        const time = document.getElementById('animTime').value || '0';
+        line = `_self_:PlayAnimLoop("${anim}", ${time})`;
+      }
+      manualLuaLines.push(line);
+      document.getElementById('manualLines').textContent = manualLuaLines.join('\n');
+      document.getElementById('luaOutput').value = manualLuaLines.join('\n');
+    };
+
+    document.getElementById('parseJson').onclick = function() {
+      const raw = document.getElementById('ueJsonInput').value.trim();
+      if (!raw) return;
+      try {
+        const j = JSON.parse(raw);
+        document.getElementById('ueJsonInput').value = JSON.stringify(j, null, 2);
+      } catch (e) {
+        alert('JSON 解析失败: ' + e.message);
+      }
+    };
+
+    document.getElementById('aiGenerate').onclick = async function() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      if (!apiKey) { alert('请输入 API Key'); return; }
+      localStorage.setItem(STORAGE_KEY, apiKey);
+
+      let propTag = '', propPos = null, personality = null, goal = null;
+      const raw = document.getElementById('ueJsonInput').value.trim();
+      if (raw) {
+        try {
+          const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          propTag = j.PropTag || j.prop_tag || '';
+          propPos = j.PropPos || j.prop_pos || null;
+          personality = j.Personality || j.personality || null;
+          goal = j.Goal || j.goal || null;
+        } catch (_) {}
+      }
+
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = '生成中...';
+      try {
+        const r = await fetch(API_BASE + '/api/npc-interaction/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: apiKey,
+            prop_tag: propTag,
+            prop_pos: propPos,
+            personality: personality,
+            goal: goal,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '生成失败');
+        document.getElementById('luaOutput').value = d.lua || '';
+        manualLuaLines = (d.lua || '').split('\n').filter(Boolean);
+        document.getElementById('manualLines').textContent = manualLuaLines.join('\n');
+      } catch (e) {
+        alert('生成失败: ' + e.message);
+      }
+      btn.disabled = false;
+      btn.textContent = 'AI 生成 LUA';
+    };
+
+    document.getElementById('sendToUE').onclick = async function() {
+      const code = document.getElementById('luaOutput').value.trim();
+      if (!code) { alert('请先生成或输入 LUA'); return; }
+      const status = document.getElementById('sendStatus');
+      try {
+        const r = await fetch(API_BASE + '/api/send-to-unreal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'NPCInteraction', code: code }),
+        });
+        const d = await r.json();
+        if (r.ok && d.sent_to > 0) {
+          status.textContent = '已发送到 ' + d.sent_to + ' 个客户端';
+          status.style.color = 'var(--success)';
+        } else {
+          status.textContent = '未连接 UE 或发送失败';
+          status.style.color = 'var(--error)';
+        }
+      } catch (e) {
+        status.textContent = '发送失败: ' + e.message;
+        status.style.color = 'var(--error)';
+      }
+    };
+
+    document.getElementById('copyLua').onclick = function() {
+      const code = document.getElementById('luaOutput').value;
+      if (code) {
+        navigator.clipboard.writeText(code);
+        this.textContent = '已复制';
+        setTimeout(() => { this.textContent = '复制'; }, 1500);
+      }
+    };
+
+    async function refreshTcpStatus() {
+      try {
+        const r = await fetch(API_BASE + '/api/tcp-status');
+        const d = await r.json();
+        const el = document.getElementById('tcpStatus');
+        if (d.connected > 0) {
+          el.className = 'tcp-status connected';
+          el.querySelector('span:last-child').textContent = d.connected + ' 个客户端已连接';
+        } else {
+          el.className = 'tcp-status disconnected';
+          el.querySelector('span:last-child').textContent = '未检测到客户端';
+        }
+      } catch (_) {}
+    }
+    refreshTcpStatus();
+    setInterval(refreshTcpStatus, 2000);
+  </script>
+</body>
+</html>

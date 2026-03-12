@@ -39,6 +39,7 @@ class GenerateRequest(BaseModel):
     encounter_locations: list[dict] | None = None  # [{x,y,z}, ...] 用户在地图上指定的奇遇触发点，按步骤顺序对应
     story_mode: str = "expand"  # expand=扩写(自然语言→剧本), continue=续写(前一章→下一章)
     init_map_code: str | None = None  # 用户在地图编辑器中编辑后的 InitMap 代码，若提供则优先使用（覆盖 stage_loader 模板）
+    previous_init_event: str | None = None  # 续写时上一幕的 InitEvent 代码，用于提取 NPC 信息（id、resource、身份）
 
 
 class AssetsModel(BaseModel):
@@ -73,6 +74,16 @@ def root():
     return {"status": "ok", "app": "LUA Story Generator"}
 
 
+@app.get("/npc-interaction")
+def npc_interaction_page():
+    """NPC 实时互动页面"""
+    from fastapi.responses import FileResponse
+    path = STATIC_DIR / "npc_interaction.html"
+    if path.exists():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="npc_interaction.html not found")
+
+
 def _load_assets() -> dict:
     """Load assets from DataTable CSVs at startup. Fallback to assets.json if DataTable empty. Merge minigames."""
     res = load_resources()
@@ -81,6 +92,7 @@ def _load_assets() -> dict:
         "enemies": res["enemies"],
         "props": res["props"],
         "items": res["items"],
+        "animations": res.get("animations", []),
         "minigames": res["minigames"],
         "source": res.get("source", "datatable"),
         "datatable_dir": res.get("datatable_dir", ""),
@@ -152,6 +164,7 @@ def get_resources():
         "enemies": res["enemies"],
         "props": res["props_detail"],
         "items": res["items_detail"],
+        "animations": res.get("animations", []),
         "minigames": res["minigames"],
         "source": res["source"],
         "datatable_dir": res["datatable_dir"],
@@ -195,6 +208,43 @@ def ue_messages(limit: int = 50, clear: bool = False):
 
 import time
 _send_dedup: dict = {}  # {(type, code): last_send_time} 用于去重
+
+class NpcInteractionRequest(BaseModel):
+    """UE 端传入的 NPC 互动上下文"""
+    api_key: str
+    prop_tag: str = ""
+    prop_pos: dict | None = None
+    personality: dict | None = None
+    goal: dict | None = None
+
+
+@app.post("/api/npc-interaction/generate")
+def npc_interaction_generate(req: NpcInteractionRequest):
+    """根据 UE 传入的 PropTag、Personality、Goal 生成 NPC 互动 LUA"""
+    if not req.api_key or not req.api_key.strip():
+        raise HTTPException(status_code=400, detail="API Key is required")
+    try:
+        res = load_resources()
+        animations = res.get("animations", [])
+        if not animations:
+            animations = [
+                "Happy", "Frustrated", "Wave", "Scared", "Shy", "Dance",
+                "Drink", "Eat", "Idle", "Sit", "Sleep", "Sing", "PickUp",
+                "Dialogue", "Admiring",
+            ]
+        from npc_interaction import generate_npc_interaction_lua
+        lua = generate_npc_interaction_lua(
+            api_key=req.api_key.strip(),
+            prop_tag=req.prop_tag or "",
+            prop_pos=req.prop_pos,
+            personality=req.personality,
+            goal=req.goal,
+            animations=animations,
+        )
+        return {"ok": True, "lua": lua}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/send-to-unreal")
 def send_to_unreal(req: SendToUnrealRequest):
@@ -256,6 +306,7 @@ def generate(req: GenerateRequest):
             encounter_locations=req.encounter_locations,
             story_mode=req.story_mode,
             init_map_code=req.init_map_code.strip() if req.init_map_code else None,
+            previous_init_event=req.previous_init_event.strip() if req.previous_init_event else None,
         )
         if req.stages_only:
             return result.get("stages", [])  # 仅返回 stages 数组，与 TCP 一致
@@ -289,4 +340,5 @@ if __name__ == "__main__":
         tcp_port = int(os.environ.get("TCP_PORT", "9010"))
         _start_tcp_server_thread(port=tcp_port)
 
-    uvicorn.run(app, host="0.0.0.0", port=9000)
+    http_port = int(os.environ.get("PORT", "9000"))
+    uvicorn.run(app, host="0.0.0.0", port=http_port)

@@ -16,6 +16,8 @@ FILENAMES = {
     "enemies": "DT_EnemyDataTable.csv",
     "props": "PropVilligeData.csv",
     "items": "DT_Items.csv",
+    "anim_start": "DT_AnimStartTable.csv",
+    "anim_montage": "DT_MontageTable.csv",
 }
 
 
@@ -108,6 +110,19 @@ def _load_props() -> list[dict[str, Any]]:
     return sorted(result, key=lambda x: x["id"])
 
 
+def _load_animations() -> list[str]:
+    """Load animation names from DT_AnimStartTable.csv and DT_MontageTable.csv (first column)."""
+    ids = []
+    for key in ["anim_start", "anim_montage"]:
+        path = DATATABLE_DIR / FILENAMES[key]
+        rows = _load_csv(path)
+        for row in rows:
+            val = _get_first_column_value(row)
+            if val and val != "---":
+                ids.append(val)
+    return sorted(set(ids))
+
+
 def _load_items() -> list[dict[str, Any]]:
     """Load Item entries from DT_Items.csv. Returns [{id, name, item_type, quality}, ...]."""
     path = DATATABLE_DIR / FILENAMES["items"]
@@ -147,6 +162,7 @@ def load_resources() -> dict[str, Any]:
     items = _load_items()
     prop_ids = [p["id"] for p in props]
     item_ids = [i["id"] for i in items]
+    anims = _load_animations()
     return {
         "npcs": npcs,
         "enemies": enemies,
@@ -154,6 +170,7 @@ def load_resources() -> dict[str, Any]:
         "items": item_ids,
         "props_detail": props,
         "items_detail": items,
+        "animations": anims,
         "minigames": ["TTT"],
         "source": "datatable",
         "datatable_dir": str(DATATABLE_DIR.resolve()),
