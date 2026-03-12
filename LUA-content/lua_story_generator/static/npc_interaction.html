@@ -50,7 +50,7 @@
     <header>
       <p style="margin: 0 0 0.5rem 0;"><a href="/">← 返回 LUA 奇遇脚本生成器</a></p>
       <h1>NPC 实时互动</h1>
-      <p class="subtitle">UE 端传入 PropTag、Personality、Goal，生成 _self_:Say / _self_:PlayAnimLoop LUA 并发送回 UE</p>
+      <p class="subtitle">UE 端传入 PropTag、Personality、Goal，生成 _self_:Say / PlayAnim / PlayAnimLoop LUA 并发送回 UE</p>
       <div id="tcpStatus" class="tcp-status disconnected">
         <span class="dot" style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
         <span>未检测到客户端</span>
@@ -82,7 +82,8 @@
           <label>函数</label>
           <select id="funcSelect">
             <option value="Say">_self_:Say(Text)</option>
-            <option value="PlayAnimLoop">_self_:PlayAnimLoop(AnimName, Time)</option>
+            <option value="PlayAnim">_self_:PlayAnim(AnimName) — 一次性手势</option>
+            <option value="PlayAnimLoop">_self_:PlayAnimLoop(AnimName, Time) — 持续状态</option>
           </select>
         </div>
         <div class="field" id="sayParam" style="min-width: 200px;">
@@ -128,7 +129,7 @@
     document.getElementById('funcSelect').onchange = function() {
       const v = this.value;
       document.getElementById('sayParam').style.display = v === 'Say' ? 'block' : 'none';
-      document.getElementById('animParams').style.display = v === 'PlayAnimLoop' ? 'block' : 'none';
+      document.getElementById('animParams').style.display = (v === 'PlayAnim' || v === 'PlayAnimLoop') ? 'block' : 'none';
       document.getElementById('timeParam').style.display = v === 'PlayAnimLoop' ? 'block' : 'none';
     };
 
@@ -160,6 +161,9 @@
         const t = document.getElementById('sayText').value.trim();
         if (!t) { alert('请输入台词'); return; }
         line = `_self_:Say("${t.replace(/"/g, '\\"')}")`;
+      } else if (fn === 'PlayAnim') {
+        const anim = document.getElementById('animSelect').value;
+        line = `_self_:PlayAnim("${anim}")`;
       } else {
         const anim = document.getElementById('animSelect').value;
         const time = document.getElementById('animTime').value || '0';

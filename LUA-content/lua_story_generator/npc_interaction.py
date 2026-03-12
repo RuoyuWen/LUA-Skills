@@ -53,10 +53,14 @@ Extraversion 外向性 0-100：高(≥70)=开朗直接、易兴奋；低(≤40)=
 
 **可用动画**（仅使用以下）：{anim_str}
 
+**动画 API 区分**：
+- **_self_:PlayAnim(AnimName)**：一次性蒙太奇，边说话边做的短暂手势（如 Wave 挥手、Drink 举杯、点头、摆手）。播完即止。
+- **_self_:PlayAnimLoop(AnimName, Time)**：持续/循环状态（如 Idle 站岗、Sit 坐着、Sleep 躺睡、躺地下死了）。Time=0 表示持续至下一动作。
+
 **生成规则**（三者缺一不可）：
 - 台词要对 PropTag 做出反应；口吻由 Personality 决定；动作选择由 Goal 驱动。
-- PropTag=drink/food/chair 等 → 选对应 Drink/Eat/Sit 等；无明确物体 → Idle/Admiring 等。
-- 输出 2~4 行 LUA，必须用 _self_ 指代 NPC，格式：_self_:Say("...") 和 _self_:PlayAnimLoop("AnimName", 0)。
+- 短暂手势（打招呼、喝酒动作、高兴摆手）→ PlayAnim；持续状态（站岗、坐着、躺着）→ PlayAnimLoop。
+- 输出 2~4 行 LUA，必须用 _self_ 指代 NPC。可组合：Say + PlayAnim（边说话边做手势）或 PlayAnimLoop（保持某姿势）。
 
 **输出**：仅 LUA 代码，无 markdown 包裹。
 """
@@ -72,5 +76,9 @@ Extraversion 外向性 0-100：高(≥70)=开朗直接、易兴奋；低(≤40)=
         if m:
             text = m.group(1).strip()
     # 确保使用 _self_ 指代 NPC，替换可能误写的 npc:
-    text = text.replace("npc:Say(", "_self_:Say(").replace("npc:PlayAnimLoop(", "_self_:PlayAnimLoop(")
+    text = (
+        text.replace("npc:Say(", "_self_:Say(")
+        .replace("npc:PlayAnim(", "_self_:PlayAnim(")
+        .replace("npc:PlayAnimLoop(", "_self_:PlayAnimLoop(")
+    )
     return text
